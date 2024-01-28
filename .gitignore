@@ -1,0 +1,12 @@
+
+node_modules/
+
+.idea/
+
+data/moph/decrypted_file.csv
+
+data/moph/encrypted_file.csv
+
+data/
+
+.env
