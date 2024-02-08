@@ -1,11 +1,9 @@
-DB_RAW_HOST='127.0.0.1'
-DB_RAW_DATABASE='rsis_province_integrate'
-DB_RAW_USER='root'
-DB_RAW_PASSWORD='root'
+DB_HOST='127.0.0.1'
 
-DB_FINAL_HOST='127.0.0.1'
-DB_FINAL_DATABASE='rsis_thailand_integrate'
-DB_FINAL_USER='root'
-DB_FINAL_PASSWORD='root'
+DB_RAW_DATABASE='read_file_api_v2'
+DB_DATABASE='rsis_api_'
 
-PROVINCE_CODE=11
+DB_USER='root'
+DB_PASSWORD='root'
+
+PROVINCE=80
