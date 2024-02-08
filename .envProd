@@ -1,0 +1,9 @@
+DB_HOST='host.docker.internal'
+
+DB_RAW_DATABASE='read_files_api'
+DB_DATABASE='rsis_api_'
+
+DB_USER='root'
+DB_PASSWORD='ykeGS3RdE3hcwKNH'
+
+PROVINCE=80

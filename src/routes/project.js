@@ -5,5 +5,7 @@ const projectController = require('../controllers/projectIntegrateController');
 router.get('/start/', projectController.startProject);
 router.get('/clean/', projectController.cleanDatabase);
 
+router.get('/test/connection', projectController.testDatabaseConnection);
+
 
 module.exports = router;
