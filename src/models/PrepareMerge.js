@@ -19,6 +19,7 @@ PrepareMerge.init({
     vehicle_type: DataTypes.INTEGER,
     name_lenght: DataTypes.INTEGER,
     is_cid_good: DataTypes.TINYINT,
+    cid: DataTypes.STRING,
     cid_num: DataTypes.BIGINT,
     is_confirm_thai: DataTypes.TINYINT,
     month: DataTypes.INTEGER,

@@ -116,17 +116,36 @@ class ProjectIntegrateController {
         console.log("IS Record",rawRecords.length);
 
         let newRecords = []; // array to hold new records
-        for (let oldRecord of rawRecords) {
 
+         let minnDate = new Date("2000-01-01");
+        for (let oldRecord of rawRecords) {
             let recordPlain = oldRecord.get({ plain: true });
-            let ddate = this.setDate0(recordPlain.date, "2000-01-01");
+            let ddate = this.setDate0(recordPlain.date, minnDate);
+            let diser = this.setDate0(recordPlain.diser, minnDate);
+            let timer = this.setDate0(recordPlain.timer, minnDate);
+            let birth = this.setDate0(recordPlain.birth, minnDate);
+            let rdate = this.setDate0(recordPlain.rdate, minnDate);
+            let buytime = this.setDate0(recordPlain.buytime, minnDate);
+            let edt = this.setDate0(recordPlain.edt, minnDate);
+            let sentmoph = this.setDate0(recordPlain.sentmoph, minnDate);
+            let dgis = this.setDate0(recordPlain.dgis, minnDate);
+            let dupload = this.setDate0(recordPlain.dupload, minnDate);
             let newRecord = {
                 // copy all properties from oldRecord
                 ...oldRecord.get({ plain: true }),  // convert instance to plain object
                 // set new properties
                 ref: oldRecord.ref,
                 project_id: projectId,
-                ddate: ddate
+                ddate: ddate,
+                diser: diser,
+                timer: timer,
+                birth: birth,
+                rdate: rdate,
+                buytime: buytime,
+                edt: edt,
+                sentmoph: sentmoph,
+                dgis: dgis,
+                dupload: dupload,
                 // mysql and temp_is_clean already set with your Sequelize setup
             };
 
@@ -356,13 +375,12 @@ class ProjectIntegrateController {
 
     }
 
-    static setDate0(date,minDate){
+    static setDate0(date,limitDate){
 
         let recordDate = null;
 
         if(date){
             let tempDate = new Date(date);
-            let limitDate = new Date(minDate);
 
             // If ddate is a valid date and not before limit date,
             // then update recordDate

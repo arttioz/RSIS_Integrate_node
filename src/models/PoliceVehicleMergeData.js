@@ -1,5 +1,7 @@
 const { Sequelize, DataTypes, Model } = require('sequelize');
 const dbServer = require('../../config/connections/db_server');
+const PoliceEventApi = require("./raw/PoliceEventApi");
+const PoliceEventMergeData = require("./PoliceEventMergeData");
 class PoliceVehicleMergeData extends Model {
 
     static associate(models) {
@@ -49,5 +51,7 @@ PoliceVehicleMergeData.init({
     createdAt: 'created_at',
     updatedAt: 'updated_at'
 });
+
+PoliceVehicleMergeData.belongsTo(PoliceEventMergeData, { as: 'policeEvent', foreignKey: 'event_id', targetKey: 'event_id' });
 
 module.exports = PoliceVehicleMergeData;
