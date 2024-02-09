@@ -205,6 +205,7 @@ ISMergeData.init(
             },
         match: DataTypes.STRING,
         is_duplicate: DataTypes.TINYINT,
+        project_id: DataTypes.INTEGER,
     },
     {
         sequelize: dbServer,
