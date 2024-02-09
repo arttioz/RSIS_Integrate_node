@@ -20,6 +20,8 @@ const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
 const {Op} = require("sequelize");
 
+
+const ProcessIntegrateController = require('./precessIntegrateController');
 require('dotenv').config();
 
 class ProjectIntegrateController {
@@ -27,18 +29,26 @@ class ProjectIntegrateController {
 
     static async startProject(preDate,startDate,endDate,subDate){
 
+        console.time('getProject');
         let project = await ProjectIntegrateController.getProject(preDate,startDate,endDate,subDate);
+        console.timeEnd('getProject');
 
         console.log(`Import Data For Project`, project.id);
+
+        console.time('importDataForProject');
         await this.importDataForProject(preDate, subDate, project.id);
+        console.timeEnd('importDataForProject');
+
+        let processController = new ProcessIntegrateController(project.id);
+        await processController.mergeRSIS()
 
     }
 
     static async importDataForProject(startDate,endDate,projectId){
 
-        // await this.importISAPIData(startDate, endDate, projectId)
-        // await this.importEclaimAPIData(startDate, endDate, projectId)
-        // await this.importPoliceEventAPIData(startDate, endDate, projectId)
+        await this.importISAPIData(startDate, endDate, projectId)
+        await this.importEclaimAPIData(startDate, endDate, projectId)
+        await this.importPoliceEventAPIData(startDate, endDate, projectId)
         await this.importPoliceVehicleAPIData(startDate, endDate, projectId)
     }
 
@@ -85,7 +95,6 @@ class ProjectIntegrateController {
             return  project;
         }
     }
-
 
 
     static async importISAPIData(startDate,endDate,projectId){
@@ -172,6 +181,8 @@ class ProjectIntegrateController {
             }
         });
 
+        console.log("Eclaim Record",rawRecords.length);
+
         // Prepare an array for the new records
         let newRecordsData = [];
 
@@ -194,9 +205,6 @@ class ProjectIntegrateController {
             await EclaimMergeData.bulkCreate(newRecordsData);
         }
 
-        // Count and log the number of records inserted
-        let count = await EclaimMergeData.count();
-        console.log("ECLAIM API: " + count + " rows\n");
     }
 
     static async importPoliceEventAPIData(startDate,endDate,projectId){
@@ -246,6 +254,8 @@ class ProjectIntegrateController {
                 CaseProvince: process.env.PROVINCE_TH
             }
         });
+
+        console.log("Police Event Record",rawEventRecords.length);
 
         // Loop through each record, transforming and saving it
         let newEventRecordsData = rawEventRecords.map(oldRecord => {
@@ -320,7 +330,7 @@ class ProjectIntegrateController {
             }
         });
 
-        console.log(rawVehicleRecords);
+        console.log("Police Vehicle Record",rawVehicleRecords.length);
 
         // Prepare an array for the new vehicle records
         let newVehicleRecords = [];
@@ -333,7 +343,8 @@ class ProjectIntegrateController {
                 newRecordData[newColumn] = oldRecord[oldColumn];
             }
             // Add the projectId
-            newRecordData['projectId'] = projectId;
+            newRecordData['id'] = null;
+            newRecordData['project_id'] = projectId;
             // Add the new record data to the array
             newVehicleRecords.push(newRecordData);
         }
@@ -343,9 +354,6 @@ class ProjectIntegrateController {
             await PoliceVehicleMergeData.bulkCreate(newVehicleRecords);
         }
 
-        // Count and log the number of records inserted
-        const count = await PoliceVehicleMergeData.count();
-        console.log("POLICE API: " + count + " rows\n");
     }
 
     static setDate0(date,minDate){

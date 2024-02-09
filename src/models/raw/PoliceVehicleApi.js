@@ -46,6 +46,6 @@ PoliceVehicleApi.init({
     updatedAt: "updated_at"
 });
 
-PoliceVehicleApi.belongsTo(PoliceEventApi, { as: 'police_event_records', foreignKey: 'AccidentNumber' });
+PoliceVehicleApi.belongsTo(PoliceEventApi, { as: 'police_event_records', foreignKey: 'AccidentNumber', targetKey: 'AccidentNumber' });
 
 module.exports = PoliceVehicleApi;
