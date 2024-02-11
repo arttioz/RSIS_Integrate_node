@@ -35,9 +35,9 @@ class ProjectIntegrateController {
 
         console.log(`Import Data For Project`, project.id);
 
-        console.time('importDataForProject');
-        await this.importDataForProject(preDate, subDate, project.id);
-        console.timeEnd('importDataForProject');
+        // console.time('importDataForProject');
+        // await this.importDataForProject(preDate, subDate, project.id);
+        // console.timeEnd('importDataForProject');
 
         let processController = new ProcessIntegrateController(project.id);
         await processController.mergeRSIS()

@@ -19,7 +19,6 @@ const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
 const {Op} = require("sequelize");
-const {cleanDatabase} = require("./projectIntegrateController");
 
 require('dotenv').config();
 
@@ -54,11 +53,17 @@ class ProcessIntegrateController {
     async mergeRSIS() {
 
         try {
-            // Assuming Sequelize for database operations
             await PrepareMerge.destroy({truncate: true});
             await ProjectIntegrateFinal.destroy({truncate: true});
 
-            await this.prepareData();
+            this.prepareData()
+                .then(() => this.mergeDataProcess())
+                .then(() => {
+                    console.log('Both prepareData and mergeDataProcess have completed successfully.');
+                })
+                .catch((error) => {
+                    console.error('An error occurred during the execution:', error);
+                });
 
 
         } catch (error) {
@@ -69,37 +74,40 @@ class ProcessIntegrateController {
 
     async prepareData(){
         console.time('prepareMergeISData');
-        this.prepareMergeISData().then(is_rows => {
-            return this.checkDuplicateInSameTable(is_rows, ISMergeData).then(() => is_rows);
-        }).then(is_rows => {
-            return this.savePrepareData(is_rows);
-        }).catch(error => {
+        try {
+            const isRows = await this.prepareMergeISData();
+            await this.checkDuplicateInSameTable(isRows, ISMergeData);
+            const nonDuplicateRows = isRows.filter(row => row.is_duplicate !== 1);
+            await this.savePrepareData(nonDuplicateRows);
+        } catch (error) {
             console.error(error);
-        }).finally(() => {
+        } finally {
             console.timeEnd('prepareMergeISData');
-        });
+        }
 
         console.time('prepareMergeEclaimData');
-        this.prepareEclaimData().then(rows => {
-            return this.checkDuplicateInSameTable(rows, EclaimMergeData).then(() => rows);
-        }).then(rows => {
-            return this.savePrepareData(rows);
-        }).catch(error => {
+        try {
+            const eclaimRows = await this.prepareEclaimData();
+            await this.checkDuplicateInSameTable(eclaimRows, EclaimMergeData);
+            const nonDuplicateRows = eclaimRows.filter(row => row.is_duplicate !== 1);
+            await this.savePrepareData(nonDuplicateRows);
+        } catch (error) {
             console.error(error);
-        }).finally(() => {
+        } finally {
             console.timeEnd('prepareMergeEclaimData');
-        });
+        }
 
         console.time('prepareMergePoliceData');
-        this.preparePoliceData().then(rows => {
-            return this.checkDuplicateInSameTable(rows, PoliceVehicleMergeData).then(() => rows);
-        }).then(rows => {
-            return this.savePrepareData(rows);
-        }).catch(error => {
+        try {
+            const policeRows = await this.preparePoliceData();
+            await this.checkDuplicateInSameTable(policeRows, PoliceVehicleMergeData);
+            const nonDuplicateRows = policeRows.filter(row => !row.is_duplicate);
+            await this.savePrepareData(policeRows);
+        } catch (error) {
             console.error(error);
-        }).finally(() => {
+        } finally {
             console.timeEnd('prepareMergePoliceData');
-        });
+        }
     }
 
     async prepareMergeISData() {
@@ -186,7 +194,7 @@ class ProcessIntegrateController {
 
             for (let search_i = nextIndex; search_i <= size; search_i++) {
                 let search_r = mergeArray[search_i];
-                let check = this.checkMatch(row, search_r);
+                let check = await this.checkMatch(row, search_r);
 
                 if (check.result > 0) {
 
@@ -222,7 +230,9 @@ class ProcessIntegrateController {
         }
     }
 
-    checkMatch(row_1, row_2) {
+
+
+    async checkMatch(row_1, row_2) {
         var matchResult = 0;
         var matchLog = 0;
 
@@ -415,6 +425,7 @@ class ProcessIntegrateController {
 
         return row;
     }
+
 
 
     async makePoliceColumnForMerge(row) {
@@ -639,6 +650,285 @@ class ProcessIntegrateController {
         return name;
     }
 
+
+    async mergeDataProcess() {
+        const prepareMerge = await PrepareMerge.findAll({
+            order: dbServer.literal(`
+            CASE
+            WHEN table_name = 'is' THEN 1
+            WHEN table_name = 'eclaim' THEN 2
+            WHEN table_name = 'police' THEN 3
+            ELSE 4
+            END
+            `)
+        });
+
+        const size = prepareMerge.length;
+        console.log("Size: ", size);
+
+        let isBegin = -1;
+        let eclaimBegin = -1;
+        let policeBegin = -1;
+        let mergeArray = [];
+        let matchRow = {};
+        let matchedRowId = {}; // Remember what is matched
+
+
+        prepareMerge.forEach((row, index) => {
+            mergeArray[row.id] = { row: row, match: [] }; // Use zero-based indexing
+
+            if (row.table_name === "is" && isBegin === -1) {
+                isBegin = row.id;
+            } else if (row.table_name === "eclaim" && eclaimBegin === -1) {
+                eclaimBegin = row.id;
+            } else if (row.table_name === "police" && policeBegin === -1) {
+                policeBegin = row.id;
+            }
+        });
+
+        // Start Match
+        for(let index = 1; index <= size; index++) {
+            if (index % 100 === 0) {
+                console.log("Index: ", index);
+            }
+
+            let row = mergeArray[index].row;
+            let match = mergeArray[index].match; // Match array of Current Row
+            let table = row.table_name;
+            let next = index + 1;
+
+            if (!matchedRowId.hasOwnProperty(row.id)) {
+                matchRow[row.id] = [];
+                matchRow[row.id].push(row);
+            }
+
+            if (table === "is") {
+                if (next < eclaimBegin) next = eclaimBegin;
+            } else if (table === "eclaim") {
+                if (next < policeBegin) next = policeBegin;
+            }else if (table === "police") {
+                if (next < size) next = size;
+            }
+
+            for(let search_i = next; search_i <= size; search_i++){
+                let search_r = mergeArray[search_i].row;
+                let search_m = mergeArray[search_i].match;
+
+                let check = await this.checkMatch(row, search_r); // Assuming checkMatch returns a Promise
+
+                if (check.result > 0) {
+                    match.push(search_r.id);
+                    search_m.push(row.id);
+
+                    await this.updateMatch(row, search_r, check.log);
+                    await this.updateMatch(search_r, row, check.log);
+
+                    if (!matchedRowId.hasOwnProperty(search_r.id)) {
+                        // Keep Match ID for check
+                        matchedRowId[search_r.id] = search_r.id;
+                        if (!matchRow[row.id]) {
+                            matchRow[row.id] = [];
+                        }
+                        matchRow[row.id].push(search_r);
+                        console.log("MATCH", index, search_i);
+                    }
+                }
+
+                // Update Match to Search Row
+                mergeArray[search_i].match = search_m;
+            }
+
+            // update All Match of the Row to mergeArray
+            mergeArray[index].match = match;
+        }
+
+        let bulkData = [];
+        for (let data of mergeArray.slice(1)) { // Skip the first index if starting from 1
+            const matchIdStr = data.match.join(",");
+            bulkData.push({ id: data.row.id, match_id: matchIdStr })
+        }
+
+        // Use bulkCreate to update all rows at once
+        await PrepareMerge.bulkCreate(bulkData, {
+            updateOnDuplicate: ["match_id"]
+        });
+    }
+
+    async  writeMergeDataProcess(is_rows, police_rows, eclaim_rows) {
+        // Fetch and order the prepare_merge data
+        const prepareMergeRows = await PrepareMerge.findAll({
+            order: [
+                // Use raw SQL or Sequelize's case method for ordering based on your setup and preference
+                [dbServer.literal(`
+                CASE
+                    WHEN table_name = 'is' THEN 1
+                    WHEN table_name = 'eclaim' THEN 2
+                    WHEN table_name = 'police' THEN 3
+                    ELSE 4
+                END
+            `), 'ASC'],
+                ['accdate', 'ASC']
+            ]
+        });
+
+        console.log(`Prepare Merge Size: ${prepareMergeRows.length}`);
+
+        let index = 1;
+        let mergeArray = {};
+        let matchRow = {};
+        let matchedRowId = {};
+        let rowID = [];
+
+        for (const row of prepareMergeRows) {
+            rowID[index] = row.id;
+            mergeArray[row.id] = { row, match: [] };
+            index++;
+        }
+
+        // Start Match
+        for (let i = 1; i <= prepareMergeRows.length; i++) {
+            let row_id = rowID[i];
+            console.log(`Index: ${i} ID: ${row_id}`);
+
+            let row = mergeArray[row_id].row;
+            let match = mergeArray[row_id].match;
+
+            if (!matchedRowId.hasOwnProperty(row.id)) {
+                matchRow[row.id] = [row];
+            }
+
+            let matchData = row.match_id;
+            if (matchData && matchData.length > 0) {
+                let matchArr = matchData.split(',');
+
+                matchArr.forEach(row_Match => {
+                    let search_r = mergeArray[row_Match].row;
+                    if (!matchedRowId.hasOwnProperty(search_r.id)) {
+                        matchedRowId[search_r.id] = search_r.id;
+                        if (!matchRow[row.id].includes(search_r)) {
+                            matchRow[row.id].push(search_r);
+                        }
+                    }
+                });
+            }
+        }
+
+        // Assuming writeFinalIntegrate is adapted to Node.js and available in this context
+        await this.writeFinalIntegrate(matchRow, is_rows, police_rows, eclaim_rows);
+    }
+
+    async  writeFinalIntegrate(matchRow, is_rows, police_rows, eclaim_rows) {
+
+        const isArr = this.rowsToArrayKey(is_rows);
+        const policeArr = this.rowsToArrayKey(police_rows);
+        const eclaimArr = this.rowsToArrayKey(eclaim_rows);
+
+        const size = matchRow.length;
+        console.log(`writeFinalIntegrate Size: ${size}`);
+        console.log(`Project ID: ${this.project_id}`);
+
+        let bulkData = [];
+
+        for (const mainRows of matchRow) {
+            for (const row of mainRows) {
+                let integrateRowData = {
+                    project_id: this.project_id, // Assuming this.project_id is available in this context
+                };
+                const id = row.data_id;
+                let dataRow;
+
+                switch (row.table_name) {
+                    case "is":
+                        dataRow = isArr[id];
+                        integrateRowData.is_id = dataRow.data_id;
+                        break;
+                    case "police":
+                        dataRow = policeArr[id];
+                        integrateRowData.police_id = dataRow.data_id;
+                        integrateRowData.police_event_id = dataRow.event_id;
+                        break;
+                    case "eclaim":
+                        dataRow = eclaimArr[id];
+                        integrateRowData.eclaim_id = dataRow.data_id;
+                        break;
+                }
+
+               this.assignValue(integrateRowData, dataRow, "name", "nameSave");
+               this.assignValue(integrateRowData, dataRow, "lname", "lnameSave");
+               this.assignValue(integrateRowData, dataRow, "cid");
+               this.assignValue(integrateRowData, dataRow, "gender");
+               this.assignValue(integrateRowData, dataRow, "nationality");
+               this.assignValue(integrateRowData, dataRow, "dob");
+               this.assignValue(integrateRowData, dataRow, "age");
+               this.assignValue(integrateRowData, dataRow, "hdate");
+               this.assignValue(integrateRowData, dataRow, "is_death");
+               this.assignValue(integrateRowData, dataRow, "occupation");
+               this.assignValue(integrateRowData, dataRow, "alcohol");
+               this.assignValue(integrateRowData, dataRow, "belt_risk");
+               this.assignValue(integrateRowData, dataRow, "helmet_risk");
+               this.assignValue(integrateRowData, dataRow, "roaduser");
+               this.assignValue(integrateRowData, dataRow, "vehicle_1");
+               this.assignValue(integrateRowData, dataRow, "vehicle_plate_1");
+               this.assignValue(integrateRowData, dataRow, "accdate");
+               this.assignValue(integrateRowData, dataRow, "atumbol");
+               this.assignValue(integrateRowData, dataRow, "aaumpor");
+               this.assignValue(integrateRowData, dataRow, "aprovince");
+               this.assignValue(integrateRowData, dataRow, "vehicle_2");
+               this.assignValue(integrateRowData, dataRow, "hospcode");
+               this.assignValue(integrateRowData, dataRow, "alat");
+               this.assignValue(integrateRowData, dataRow, "along");
+
+                bulkData.push(integrateRowData);
+
+            }
+        }
+
+
+
+        // Use bulkCreate to insert all data at once
+        try {
+            await ProjectIntegrateFinal.bulkCreate(bulkData);
+            console.log('Bulk insert successful');
+        } catch (error) {
+            console.error('Error during bulk insert:', error);
+        }
+    }
+
+    assignValue(finalData, dataRow, colName, dataColName = "") {
+        dataColName = dataColName || colName; // Default to colName if dataColName is empty
+
+        const currValue = finalData[colName];
+        if ((currValue === null || currValue === undefined) && dataRow[dataColName] != null) {
+            finalData[colName] = dataRow[dataColName];
+        }
+    }
+
+
+    async updateMatch(row_1, row_2, log) {
+        if (row_1.table_name === "is") {
+            row_2.in_is = 1;
+            row_2.is_id = row_1.data_id;
+            row_2.is_log = log;
+
+        } else if (row_1.table_name === "police") {
+            row_2.in_police = 1;
+            row_2.police_id = row_1.data_id;
+            row_2.police_log = log;
+        }
+        else if (row_1.table_name === "eclaim") {
+            row_2.in_eclaim = 1;
+            row_2.eclaim_id = row_1.data_id;
+            row_2.eclaim_log = log;
+        }
+    }
+
+    rowsToArrayKey(rows) {
+        const arr = {};
+        for (const row of rows) {
+            arr[row.data_id] = row;
+        }
+        return arr;
+    }
 
     async savePrepareData(rows) {
         let rowNum = 1;
