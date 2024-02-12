@@ -21,7 +21,7 @@ const dbServerRaw = require('../../config/connections/db_server_raw');
 const {Op} = require("sequelize");
 
 
-const ProcessIntegrateController = require('./precessIntegrateController');
+const ProcessIntegrateController = require('./processIntegrateController');
 require('dotenv').config();
 
 class ProjectIntegrateController {
@@ -29,15 +29,20 @@ class ProjectIntegrateController {
 
     static async startProject(preDate,startDate,endDate,subDate){
 
-        console.time('getProject');
         let project = await ProjectIntegrateController.getProject(preDate,startDate,endDate,subDate);
-        console.timeEnd('getProject');
+
+        console.log("Start Integrate Project",project.id);
+        console.log("Pre Date:",preDate.format('DD/MM/YYYY'));
+        console.log("Start date:",startDate.format('DD/MM/YYYY'));
+        console.log("End Date:",endDate.format('DD/MM/YYYY'));
+        console.log("Sub Date:",subDate.format('DD/MM/YYYY'));
+
 
         console.log(`Import Data For Project`, project.id);
 
-        // console.time('importDataForProject');
-        // await this.importDataForProject(preDate, subDate, project.id);
-        // console.timeEnd('importDataForProject');
+        console.time('importDataForProject');
+        await this.importDataForProject(preDate, subDate, project.id);
+        console.timeEnd('importDataForProject');
 
         let processController = new ProcessIntegrateController(project.id);
         await processController.mergeRSIS()
@@ -411,7 +416,7 @@ module.exports = {
         let endDate = startDate.clone().add(rangeDate,'days');
         let subDate = endDate.clone().add(subRangeDate,'days');
 
-        console.log(preDate,startDate,endDate,subDate);
+
 
         await ProjectIntegrateController.startProject(preDate, startDate, endDate, subDate);
 
