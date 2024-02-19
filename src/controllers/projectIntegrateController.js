@@ -19,6 +19,7 @@ const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
 const {Op} = require("sequelize");
+const provinces = require('../utils/provinces');
 
 
 const ProcessIntegrateController = require('./processIntegrateController');
@@ -27,11 +28,11 @@ require('dotenv').config();
 class ProjectIntegrateController {
 
 
-    static async startProject(preDate,startDate,endDate,subDate){
+    static async startProject(preDate,startDate,endDate,subDate,provinceCode){
 
-        let project = await ProjectIntegrateController.getProject(preDate,startDate,endDate,subDate);
+        let project = await ProjectIntegrateController.getProject(preDate,startDate,endDate,subDate,provinceCode);
 
-        console.log("Start Integrate Project",project.id);
+        console.log("Start Integrate Project",project.id,project.province_code);
         console.log("Pre Date:",preDate.format('DD/MM/YYYY'));
         console.log("Start date:",startDate.format('DD/MM/YYYY'));
         console.log("End Date:",endDate.format('DD/MM/YYYY'));
@@ -41,23 +42,24 @@ class ProjectIntegrateController {
         console.log(`Import Data For Project`, project.id);
 
         console.time('importDataForProject');
-        await this.importDataForProject(preDate, subDate, project.id);
+        await this.importDataForProject(preDate, subDate, project);
         console.timeEnd('importDataForProject');
 
-        let processController = new ProcessIntegrateController(project.id);
+        let processController = new ProcessIntegrateController(project.id,project.province_code);
+
         await processController.mergeRSIS()
 
     }
 
-    static async importDataForProject(startDate,endDate,projectId){
+    static async importDataForProject(startDate,endDate,project){
 
-        await this.importISAPIData(startDate, endDate, projectId)
-        await this.importEclaimAPIData(startDate, endDate, projectId)
-        await this.importPoliceEventAPIData(startDate, endDate, projectId)
-        await this.importPoliceVehicleAPIData(startDate, endDate, projectId)
+        await this.importISAPIData(startDate, endDate, project)
+        await this.importEclaimAPIData(startDate, endDate, project)
+        await this.importPoliceEventAPIData(startDate, endDate, project)
+        await this.importPoliceVehicleAPIData(startDate, endDate, project)
     }
 
-    static async getProject(preDate,startDate,endDate,subDate){
+    static async getProject(preDate,startDate,endDate,subDate,provinceCode){
 
         let project = null;
         try {
@@ -65,7 +67,8 @@ class ProjectIntegrateController {
             project = await Project.findOne({
                 where: {
                     start_date: startDate,
-                    end_date: endDate
+                    end_date: endDate,
+                    province_code: provinceCode
                 }
             });
 
@@ -73,6 +76,7 @@ class ProjectIntegrateController {
             if (!project){
                 project = await Project.create({
                     name: "Auto Project",
+                    province_code: provinceCode,
                     pre_date: preDate,
                     start_date: startDate,
                     end_date: endDate,
@@ -102,9 +106,9 @@ class ProjectIntegrateController {
     }
 
 
-    static async importISAPIData(startDate,endDate,projectId){
+    static async importISAPIData(startDate,endDate,project){
 
-        console.log(`Import IS DATA For project`,projectId);
+        console.log(`Import IS DATA For project`,project.id);
 
         await ISMergeData.destroy({ truncate : true, cascade: false });
 
@@ -112,9 +116,9 @@ class ProjectIntegrateController {
             where: {
                 adate: {
                     [Op.gte]: startDate,  // >= startDate
-                    [Op.lte]: endDate      // <= endDate
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 },
-                aplace: process.env.PROVINCE
+                aplace: project.province_code
             },
         });
 
@@ -122,7 +126,7 @@ class ProjectIntegrateController {
 
         let newRecords = []; // array to hold new records
 
-         let minnDate = new Date("2000-01-01");
+        let minnDate = new Date("2000-01-01");
         for (let oldRecord of rawRecords) {
             let recordPlain = oldRecord.get({ plain: true });
             let ddate = this.setDate0(recordPlain.date, minnDate);
@@ -140,7 +144,7 @@ class ProjectIntegrateController {
                 ...oldRecord.get({ plain: true }),  // convert instance to plain object
                 // set new properties
                 ref: oldRecord.ref,
-                project_id: projectId,
+                project_id: project.id,
                 ddate: ddate,
                 diser: diser,
                 timer: timer,
@@ -162,7 +166,7 @@ class ProjectIntegrateController {
         }
     }
 
-    static async importEclaimAPIData(startDate,endDate,projectId){
+    static async importEclaimAPIData(startDate,endDate,project){
 
         const columnMapping = {
             cid: 'IdCard',
@@ -194,14 +198,15 @@ class ProjectIntegrateController {
         // Erase the EclaimMergeData table
         await EclaimMergeData.destroy({ truncate : true, cascade: false });
 
+        let province_name = provinces[project.province_code];
         // Fetch records that meets the date requirements
         let rawRecords = await EclaimApi.findAll({
             where: {
                 AccDate: {
                     [Op.gte]: startDate,
-                    [Op.lte]: endDate
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 },
-                AccProvince: process.env.PROVINCE_TH
+                AccProvince: province_name
             }
         });
 
@@ -218,7 +223,7 @@ class ProjectIntegrateController {
                 let oldColumn = columnMapping[newColumn];
                 newRecordData[newColumn] = oldRecord[oldColumn];
             }
-            newRecordData['project_id'] = projectId;
+            newRecordData['project_id'] = project.id;
 
             // Add the new record data to the array
             newRecordsData.push(newRecordData);
@@ -231,7 +236,8 @@ class ProjectIntegrateController {
 
     }
 
-    static async importPoliceEventAPIData(startDate,endDate,projectId){
+
+    static async importPoliceEventAPIData(startDate,endDate,project){
         const columnMappingEvent = {
             event_id: 'AccidentNumber',
             adate: 'CaseDay',
@@ -265,6 +271,8 @@ class ProjectIntegrateController {
             case_parties: 'CaseParties'
         };
 
+        let province_name = provinces[project.province_code];
+
         // Truncate the PoliceMergeEvent table
         await PoliceEventMergeData.destroy({ truncate : true, cascade: false });
 
@@ -273,9 +281,9 @@ class ProjectIntegrateController {
             where: {
                 CaseDay: {
                     [Op.gte]: startDate,
-                    [Op.lte]: endDate
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 },
-                CaseProvince: process.env.PROVINCE_TH
+                CaseProvince: province_name
             }
         });
 
@@ -288,7 +296,7 @@ class ProjectIntegrateController {
                 let oldColumn = columnMappingEvent[newColumn];
                 newRecordData[newColumn] = oldRecord[oldColumn];
             }
-            newRecordData['project_id'] = projectId;
+            newRecordData['project_id'] = project.id;
 
             // Add the new record data to the array
             return newRecordData;
@@ -299,7 +307,7 @@ class ProjectIntegrateController {
     }
 
 
-    static async importPoliceVehicleAPIData(startDate,endDate,projectId){
+    static async importPoliceVehicleAPIData(startDate,endDate,project){
         const columnMappingData = {
             id: 'id',
             event_id: 'AccidentNumber',
@@ -332,6 +340,9 @@ class ProjectIntegrateController {
         // Truncate the PoliceMergeData table
         await PoliceVehicleMergeData.destroy({ truncate: true, cascade: false });
 
+
+        let province_name = provinces[project.province_code];
+
         // Fetch vehicle records that meet the date requirements
         const rawVehicleRecords = await PoliceVehicleApi.findAll({
             attributes: { all: true },
@@ -341,7 +352,7 @@ class ProjectIntegrateController {
                     as: 'police_event_records',
                     attributes: [],
                     where: {
-                        CaseProvince: process.env.PROVINCE_TH
+                        CaseProvince: province_name
                     },
                     required: true,
                 }
@@ -349,7 +360,7 @@ class ProjectIntegrateController {
             where: {
                 CaseDay: {
                     [Op.gte]: startDate,
-                    [Op.lte]: endDate
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 }
             }
         });
@@ -368,7 +379,7 @@ class ProjectIntegrateController {
             }
             // Add the projectId
             newRecordData['id'] = null;
-            newRecordData['project_id'] = projectId;
+            newRecordData['project_id'] = project.id;
             // Add the new record data to the array
             newVehicleRecords.push(newRecordData);
         }
@@ -402,24 +413,68 @@ module.exports = ProjectIntegrateController;
 
 module.exports = {
 
+    autoProjectProvince: async function (req, res) {
 
-
-    autoProject: async function (req, res) {
 
         let startDate = moment(process.env.PROJECT_FIRST_DATE);
         let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
+        const endDateLimit = moment('2023-12-15', "YYYY-MM-DD");
 
-        let preDate = startDate.clone().subtract(preRangDate,'days');
-        let endDate = startDate.clone().add(rangeDate,'days');
-        let subDate = endDate.clone().add(subRangeDate,'days');
+        while (startDate.isBefore(endDateLimit)) {
+
+            let preDate = startDate.clone().subtract(preRangDate,'days');
+            let endDate = startDate.clone().add(rangeDate,'days');
+            let subDate = endDate.clone().add(subRangeDate,'days');
+
+
+            await ProjectIntegrateController.startProject(preDate, startDate, endDate, subDate,process.env.PROVINCE);
+
+            startDate = startDate.add(rangeDate, 'days');
+        }
+
+        res.json({"code":200, "message":"Job success"})
+    },
 
 
 
-        await ProjectIntegrateController.startProject(preDate, startDate, endDate, subDate);
+    autoProject: async function (req, res) {
 
+
+        let startDate = moment(process.env.PROJECT_FIRST_DATE);
+        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        const endDateLimit = moment().subtract(1, 'days');
+
+        for (let province_code = 10; province_code <= 96; province_code++){
+
+            let run_startDate = startDate.clone();
+
+            while (run_startDate.isBefore(endDateLimit)) {
+
+                let preDate = run_startDate.clone().subtract(preRangDate,'days');
+                let endDate = run_startDate.clone().add(rangeDate,'days');
+                let subDate = endDate.clone().add(subRangeDate,'days');
+
+
+                if (provinces.hasOwnProperty(province_code)){
+
+                    const startTime = new Date(); // Start timing
+                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
+
+                    const endTime = new Date(); // End timing
+                    const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                    console.log(`Total time: ${totalTime} ms`);
+                }
+
+                run_startDate = run_startDate.add(rangeDate + 1, 'days');
+            }
+
+        }
 
         res.json({"code":200, "message":"Job success"})
     },

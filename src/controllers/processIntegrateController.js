@@ -11,9 +11,12 @@ const PrepareMerge = require('../models/PrepareMerge');
 const Project = require('../models/Project');
 const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const IntegrateFinal = require('../models/IntegrateFinal');
+const IntegrateFinalFull = require('../models/IntegrateFinalFull');
 
 const dbServer = require('../../config/connections/db_server');
 const {QueryTypes, Op} = require("sequelize");
+
+const provinces = require('../utils/provinces');
 
 require('dotenv').config();
 
@@ -25,7 +28,7 @@ class ProcessIntegrateController {
     static STATUS_INTEGRATE_FAILED = "บูรณาการไม่สำเร็จ กรุณาตรวจสอบ Log";
     static STATUS_INTEGRATE_MERGE_SUCCESSED = "ข้อมูลบูรณาการได้รวมกับฐานหลักแล้ว";
 
-    constructor(project_id) {
+    constructor(project_id,project_code) {
         this.dateFrom = moment('2000-01-01 00:00:00', 'YYYY-MM-DD HH:mm:ss');
 
         const walkNum = 0;
@@ -46,7 +49,10 @@ class ProcessIntegrateController {
         this.vehicleTxt[truckNum] = "รถบรรทุกเล็กหรือรถตู้";
         this.vehicleTxt[bigTruckNum] = "รถบรรทุกหนัก";
         this.vehicleTxt[busNum] = "รถโดยสาร";
+
         this.project_id = project_id;
+
+        this.province_code = project_code
 
         this.is_rows = [];
         this.eclaim_rows = [];
@@ -58,6 +64,8 @@ class ProcessIntegrateController {
         try {
             await PrepareMerge.destroy({truncate: true});
             await ProjectIntegrateFinal.destroy({truncate: true});
+            await IntegrateFinal.destroy({truncate: true});
+
             await this.prepareData();
             await this.mergeDataProcess();
             await this.writeMergeDataProcess()
@@ -123,7 +131,11 @@ class ProcessIntegrateController {
     }
 
     async prepareEclaimData(projectId) {
+
+
         try {
+            await this.deleteEclaimDuplicateRecord();
+
             let rows = await EclaimMergeData.findAll({ where: { project_id: this.project_id }});
             console.log(`Eclaim row: ${rows.length}`);
 
@@ -135,6 +147,34 @@ class ProcessIntegrateController {
         } catch(error) {
             console.error(error);
         }
+    }
+
+     async deleteEclaimDuplicateRecord(){
+
+         const deleteQuery = `
+             DELETE t1
+        FROM temp_eclaim_clean t1
+        JOIN (
+            SELECT cid, temp_eclaim_clean.name, adate, MIN(id) AS min_id
+            FROM temp_eclaim_clean
+            WHERE cid IS NOT NULL
+            GROUP BY cid, adate, temp_eclaim_clean.name
+            HAVING COUNT(*) > 1
+        ) t2 ON t1.cid = t2.cid AND t1.adate = t2.adate and t1.name = t2.name
+        WHERE t1.id > t2.min_id;
+         `;
+
+
+        try {
+            const result = await dbServer.query(deleteQuery);
+            console.log(`Delete Duplicate Eclaim rows deleted.`, result[0].affectedRows);
+
+        } catch (error) {
+            console.error('Error', error);
+        }finally {
+            await dbServer.query("SET SESSION sql_mode=''");
+        }
+
     }
 
     async preparePoliceData(projectId) {
@@ -579,7 +619,7 @@ class ProcessIntegrateController {
         // Fetch and order the prepare_merge data
         const prepareMergeRows = await PrepareMerge.findAll({
             order: [
-                ['id', 'ASC'] // Keeps your ordering by id in ascending order
+                ['id', 'DESC'] // Keeps your ordering by id in ascending order
             ]
         });
 
@@ -611,15 +651,20 @@ class ProcessIntegrateController {
             if (matchData && matchData.length > 0) {
                 let matchArr = matchData.split(',');
 
-
                 for (const row_Match of matchArr) {
 
                     let search_r = mergeArray[row_Match].row;
 
                     if (matchedRowId.has(search_r.id) === false) {
+
                         matchedRowId.set(search_r.id, true);
                         matchedRowId.set(row.id, true);
-                        matchRow[row.id].push(search_r);
+
+                        try{
+                            matchRow[row.id].push(search_r);
+                        }catch (error){
+                            console.log("Skip ID",row.id,row.table_name,row.name,row.cid,row.accdate)
+                        }
 
                     }
                 }
@@ -709,7 +754,7 @@ class ProcessIntegrateController {
 
     async updateProjectIntegrateFinalData(){
         await this.updateProjectSummary();
-        await this.deleteOldProjectData();
+
         await this.mergeDataToIntegrateFinal();
         await this.updateProjectDataToFinalTable();
 
@@ -719,17 +764,39 @@ class ProcessIntegrateController {
         await this.updateAProvinceData()
         await this.updateInjuryDateData()
         await this.updateIsDeadData()
+        await this.updateIsAdmitData()
         await this.updateOccupationData()
         await this.updateVehicleData()
         await this.updateHelmetRiskData()
         await this.updateBeltRiskData()
         await this.updateAlcoholRiskData()
+
+
+        await this.mergeFinalDataToFinalTable();
     }
 
 
     async mergeDataToIntegrateFinal(){
+
+        const project = await Project.findOne({
+            where: { id: this.project_id }
+        });
+        if (!project) {
+            console.log('Project not found');
+            return;
+        }
+
+        const startDate = project.start_date; // Assuming 'start_date' is the field name
+        const endDate = project.end_date; // Assuming 'end_date' is the field name
+
         const projectIntegrateRows = await ProjectIntegrateFinal.findAll({
-            where: { project_id: this.project_id }
+            where: {
+                project_id: this.project_id,
+                accdate: {
+                    [Op.gte]: startDate, // Greater than or equal to startDate
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
+                }
+            }
         });
 
         // Step 2: Prepare data for bulk insert
@@ -754,6 +821,7 @@ class ProcessIntegrateController {
             atumbol: row.atumbol,
             aaumpor: row.aaumpor,
             aprovince: row.aprovince,
+            aprovince_code: this.province_code,
             vehicle_2: row.vehicle_2,
             police_event_id: row.police_event_id,
             hospcode: row.hospcode,
@@ -781,8 +849,27 @@ class ProcessIntegrateController {
         console.log(`Merge Data To IntegrateFinal for project: ${this.project_id} successfully.`);
     }
 
+    async mergeFinalDataToFinalTable(){
+        await this.deleteOldProjectData();
+
+        try {
+            // Fetch all data from IntegrateFinal
+            const data = await IntegrateFinal.findAll();
+            const bulkData = data.map(entry => {
+                const { id, ...rest } = entry.get({ plain: true });
+                return rest;
+            });
+
+            // Bulk create in IntegrateFinalFull with the fetched data
+            await IntegrateFinalFull.bulkCreate(bulkData);
+            console.log('Data create to Integrate Final Full successfully.');
+        } catch (error) {
+            console.error('Error copying data:', error);
+        }
+    }
+
     async deleteOldProjectData(){
-        await IntegrateFinal.destroy({
+        await IntegrateFinalFull.destroy({
             where: {
                 project_id: this.project_id
             }
@@ -798,15 +885,19 @@ class ProcessIntegrateController {
 
         const startDate = project.start_date; // Assuming 'start_date' is the field name
         const endDate = project.end_date; // Assuming 'end_date' is the field name
+        const province_code = this.province_code; // Assuming 'end_date' is the field name
 
-        await IntegrateFinal.destroy({
+        await IntegrateFinalFull.destroy({
             where: {
                 injury_date: {
                     [Op.gte]: startDate, // Greater than or equal to startDate
                     [Op.lt]: endDate    // Less than endDate
-                }
+                },
+                aprovince_code: province_code
             }
         });
+
+        console.log('Delete Old record in Integrate Final Full successfully');
     }
 
     ////////////////////////////////////////
@@ -1165,25 +1256,6 @@ class ProcessIntegrateController {
         }
     }
 
-    async updateIsDeathData() {
-
-        const query = `
-            UPDATE integrate_final
-            SET is_death = 1
-            WHERE (is_staer = '1' OR is_staer = '6' OR is_ward = '5' OR is_ward = '6') AND project_id = :projectId;
-        `;
-
-        try {
-            await dbServer.query(query, {
-                replacements: { projectId: this.project_id },
-                type: QueryTypes.UPDATE
-            });
-        } catch (error) {
-            console.error('Error', error);
-        }
-    }
-
-
 
     async updateRoadUserData() {
         try {
@@ -1320,16 +1392,69 @@ class ProcessIntegrateController {
         }
     }
 
+
+    async updateIsAdmitData() {
+        try {
+
+            const query = `
+                UPDATE integrate_final
+                SET admit = 1
+                WHERE is_death IS NULL
+                  AND (
+                    (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 3, 6, 7))
+                        OR
+                    (is_ward REGEXP '^-?[0-9]+$' AND CAST(is_ward AS UNSIGNED) IN (1,2,3,4,5,6))
+                        or
+                    (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
+                        or
+                    is_pmi = 1
+                        OR
+                    eclaim_injury_status like '%ปานกลาง%'
+                        OR
+                    eclaim_injury_status = '%สาหัส%'
+                        OR
+                    eclaim_injury_status = '%สาหัส%'
+                        OR
+                    eclaim_injury_status = '%สูญเสีย%'
+                        OR
+                    police_vehicle_injury like '%นอนรักษา%'
+                    ) AND project_id = :projectId;
+                `;
+
+            await this.executeUpdate(query, this.project_id);
+
+            console.log("Update Is Admit successfully.");
+        } catch(error) {
+            console.error('Error', error);
+        }
+    }
+
+
+
     async updateIsDeadData() {
         try {
-            // Update is_death from eclaim_injury_status
-            await this.executeUpdate("UPDATE integrate_final SET is_death = 1 WHERE eclaim_injury_status = 'เสียชีวิต' AND project_id = :projectId", this.project_id);
 
-            // Update is_death from police_vehicle_injury
-            await this.executeUpdate("UPDATE integrate_final SET is_death = 1 WHERE police_vehicle_injury = 'เสียชีวิต' AND project_id = :projectId", this.project_id);
+            const query = `
+                UPDATE integrate_final
+                SET is_death = 1
+                WHERE
+                    is_death IS NULL
+                  AND (
+                    (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 6))
+                        OR
+                    (is_ward REGEXP '^-?[0-9]+$' AND CAST(is_ward AS UNSIGNED) IN (5))
+                        or
+                    (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
+                        or
+                    is_pmi = 1
+                        OR
+                    eclaim_injury_status like '%เสียชีวิต%'
+                        OR
+                    police_vehicle_injury like '%เสียชีวิต%'
+                    ) AND project_id = :projectId;
+                `;
 
-            // Update is_death from his_isdeath
-            await this.executeUpdate("UPDATE integrate_final SET is_death = 1 WHERE his_isdeath = 1 AND project_id = :projectId", this.project_id);
+            await this.executeUpdate(query, this.project_id);
 
             console.log("Update Is Dead successfully.");
         } catch(error) {
@@ -1563,6 +1688,7 @@ class ProcessIntegrateController {
 
             if (results && results.length > 0) {
                 const summary = results[0];
+                summary.status = ProcessIntegrateController.STATUS_INTEGRATE_SUCCESSED;
 
                 // Use the summary data to update the Project model
                 await Project.update(summary, {

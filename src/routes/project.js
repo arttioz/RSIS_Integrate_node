@@ -6,6 +6,7 @@ router.get('/start/', projectController.startProject);
 router.get('/clean/', projectController.cleanDatabase);
 
 router.get('/start/autoproject', projectController.autoProject);
+router.get('/start/autoProject/province', projectController.autoProjectProvince);
 router.get('/test/connection', projectController.testDatabaseConnection);
 
 

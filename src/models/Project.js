@@ -13,6 +13,7 @@ Project.init({
     is_run: DataTypes.INTEGER,
     name: DataTypes.STRING,
     status: DataTypes.STRING,
+    province_code: DataTypes.INTEGER,
     pre_date: DataTypes.DATEONLY,
     start_date: DataTypes.DATEONLY,
     end_date: DataTypes.DATEONLY,
