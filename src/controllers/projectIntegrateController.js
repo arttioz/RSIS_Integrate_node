@@ -7,11 +7,14 @@ const EclaimApi = require('../models/raw/EclaimApi');
 const ISRawData = require('../models/raw/ISRawData');
 const PoliceEventApi = require('../models/raw/PoliceEventApi');
 const PoliceVehicleApi = require('../models/raw/PoliceVehicleApi');
+const EReportApi = require('../models/raw/EReportApi');
 
 const EclaimMergeData = require('../models/EclaimMergeData');
 const ISMergeData = require('../models/ISMergeData');
 const PoliceEventMergeData = require('../models/PoliceEventMergeData');
 const PoliceVehicleMergeData = require('../models/PoliceVehicleMergeData');
+const EReportMergeData = require('../models/EReportMergeData');
+
 const PrepareMerge = require('../models/PrepareMerge');
 const Project = require('../models/Project');
 const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
@@ -23,6 +26,9 @@ const provinces = require('../utils/provinces');
 
 
 const ProcessIntegrateController = require('./processIntegrateController');
+const ProcessIntegrateEreportController = require('./processIntegrateEreportController');
+const ProcessMapController = require('./processMapController');
+const e = require("express");
 require('dotenv').config();
 
 class ProjectIntegrateController {
@@ -58,6 +64,9 @@ class ProjectIntegrateController {
         await this.importPoliceEventAPIData(startDate, endDate, project)
         await this.importPoliceVehicleAPIData(startDate, endDate, project)
     }
+
+
+
 
     static async getProject(preDate,startDate,endDate,subDate,provinceCode){
 
@@ -391,6 +400,56 @@ class ProjectIntegrateController {
 
     }
 
+
+    static async importEreportVehicleAPIData(startDate,endDate){
+        const modelAttributes = EReportApi.getAttributes();
+        const columnMapping = {};
+
+        Object.keys(modelAttributes).forEach(column => {
+            columnMapping[column] = column;
+        });
+        await EReportMergeData.destroy({ truncate : true, cascade: false });
+        // Fetch records that meets the date requirements
+        let rawRecords = await EReportApi.findAll({
+            where: {
+                acc_date: {
+                    [Op.gte]: startDate,
+                    [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
+                }
+            }
+        });
+
+        console.log("E-report Record",rawRecords.length);
+
+        // Prepare an array for the new records
+        let newRecordsData = [];
+        for (let oldRecord of rawRecords) {
+            let newRecordData = {};
+            for (let column in columnMapping) {
+                newRecordData[column] = oldRecord[column];
+            }
+            // Populate additional fields for temp_ereport_clean
+            newRecordData['prename'] = ''; // Default or compute as needed
+            newRecordData['name'] = ''; // Default or compute as needed
+            newRecordData['lname'] = ''; // Default or compute as needed
+            newRecordData['adate'] = oldRecord['acc_date']; // Current date or another logic
+            newRecordData['match'] = ''; // Default or logic to populate
+            newRecordData['is_duplicate'] = 0; // Default or logic to check duplicates
+            newRecordData['project_file_id'] = null; // Assuming there is a file_id in the project object
+            newRecordData['project_id'] = null;
+            newRecordData['created_at'] = new Date(); // Current time
+            newRecordData['updated_at'] = new Date(); // Current time
+
+            newRecordsData.push(newRecordData);
+        }
+
+        // Bulk-create the new records
+        if (newRecordsData.length > 0) {
+            await EReportMergeData.bulkCreate(newRecordsData);
+        }
+
+    }
+
     static setDate0(date,limitDate){
 
         let recordDate = null;
@@ -421,7 +480,7 @@ module.exports = {
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
-        const endDateLimit = moment('2023-12-15', "YYYY-MM-DD");
+        const endDateLimit = moment('2024-04-16', "YYYY-MM-DD");
 
         while (startDate.isBefore(endDateLimit)) {
 
@@ -436,6 +495,86 @@ module.exports = {
         }
 
         res.json({"code":200, "message":"Job success"})
+    },
+
+    autoProjectCustomDate: async function (req, res) {
+
+        let startDateInput = req.query.startDate;
+        let endDateInput = req.query.endDate;
+        let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+        let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+        if (!checkStart || !checkEnd){
+            res.json({"code":400, "message":"Error Date format"})
+        }
+
+        const startDate = moment(startDateInput);
+        const endDateLimit = moment(endDateInput);
+
+
+        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        for (let province_code = 10; province_code <= 96; province_code++){
+
+            let run_startDate = startDate.clone();
+
+            while (run_startDate.isBefore(endDateLimit)) {
+
+                let preDate = run_startDate.clone().subtract(preRangDate,'days');
+                let endDate = run_startDate.clone().add(rangeDate,'days');
+                let subDate = endDate.clone().add(subRangeDate,'days');
+
+
+                if (provinces.hasOwnProperty(province_code)){
+
+                    const startTime = new Date(); // Start timing
+                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
+
+                    const endTime = new Date(); // End timing
+                    const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                    console.log(`Total time: ${totalTime} ms`);
+                }
+
+                run_startDate = run_startDate.add(rangeDate + 1, 'days');
+            }
+        }
+
+        res.json({"code":200, "message":"Job success"})
+    },
+
+    autoCompareWithEreportCustomDate: async function (req, res) {
+        const startDate = moment("2024-04-11");
+        const endDate = moment("2024-04-17");
+        await ProjectIntegrateController.importEreportVehicleAPIData(startDate,endDate)
+        let processController = new ProcessIntegrateEreportController(startDate,endDate);
+
+        await processController.mergeRSIS()
+
+        res.json({"code":200, "message":"Job success"})
+    },
+
+    autoRiskMapCustomDate: async function (req, res) {
+        let startDateInput = req.query.startDate;
+        let endDateInput = req.query.endDate;
+        let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+        let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+        if (!checkStart || !checkEnd){
+            res.json({"code":400, "message":"Error Date format"})
+        }
+
+        const startDate = moment(startDateInput);
+        const endDate = moment(endDateInput);
+
+        console.log(startDate, endDate)
+
+        let processController = new ProcessMapController(startDate,endDate);
+
+        let result = await processController.performClustering()
+
+        res.json({"code":200, "message":result})
     },
 
 

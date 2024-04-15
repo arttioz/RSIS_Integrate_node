@@ -1,20 +1,19 @@
 const { Model, DataTypes } = require('sequelize');
 const dbServer = require('../../config/connections/db_server');
 
-class ProjectIntegrateFinal extends Model {}
+class ProjectIntegrateFinalEreport extends Model {}
 
-ProjectIntegrateFinal.init(
+ProjectIntegrateFinalEreport.init(
     {
         id: { type: DataTypes.BIGINT, primaryKey: true },
         name: DataTypes.STRING(100),
         lname: DataTypes.STRING(100),
         cid: DataTypes.STRING(20),
-        gender: DataTypes.INTEGER,
+        gender: DataTypes.INTEGER(11),
         nationality: DataTypes.STRING(100),
         dob: DataTypes.DATE,
-        age: DataTypes.INTEGER,
+        age: DataTypes.INTEGER(11),
         is_death: DataTypes.BOOLEAN,
-        admit: DataTypes.INTEGER,
         occupation: DataTypes.STRING(100),
         hdate: DataTypes.DATE,
         alcohol: DataTypes.STRING(255),
@@ -32,12 +31,10 @@ ProjectIntegrateFinal.init(
         hospcode: DataTypes.STRING(10),
         eclaim_id: DataTypes.BIGINT(20),
         eclaim_protocal: DataTypes.STRING(255),
-        is_id: DataTypes.BIGINT(20),
-        is_protocal: DataTypes.STRING(255),
-        his_id: DataTypes.BIGINT(20),
-        his_protocal: DataTypes.STRING(255),
-        police_id: DataTypes.BIGINT(20),
-        police_protocal: DataTypes.STRING(255),
+        e_report_id: DataTypes.BIGINT(20),
+        e_report_protocal: DataTypes.STRING(255),
+        rsis_id: DataTypes.BIGINT(20),
+        rsis_protocal: DataTypes.STRING(255),
         alat: DataTypes.FLOAT,
         along: DataTypes.FLOAT,
         created_at: DataTypes.DATE,
@@ -48,7 +45,7 @@ ProjectIntegrateFinal.init(
     },
     {
         sequelize:dbServer,
-        tableName: 'project_integrate_final',
+        tableName: 'project_integrate_final_ereport',
         underscored: true,
         timestamps: true,
         createdAt: 'created_at',
@@ -56,4 +53,4 @@ ProjectIntegrateFinal.init(
     }
 );
 
-module.exports = ProjectIntegrateFinal;
+module.exports = ProjectIntegrateFinalEreport;

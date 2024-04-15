@@ -14,6 +14,7 @@ IntegrateFinalFull.init({
     age: { type: DataTypes.INTEGER },
     injury_date: { type: DataTypes.DATE },
     is_death: { type: DataTypes.BOOLEAN },
+    admit: { type: DataTypes.INTEGER },
     occupation: { type: DataTypes.STRING(100) },
     hdate: { type: DataTypes.DATE },
     alcohol: { type: DataTypes.STRING(255) },

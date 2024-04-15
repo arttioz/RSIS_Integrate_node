@@ -764,12 +764,12 @@ class ProcessIntegrateController {
         await this.updateAProvinceData()
         await this.updateInjuryDateData()
         await this.updateIsDeadData()
-        await this.updateIsAdmitData()
         await this.updateOccupationData()
         await this.updateVehicleData()
         await this.updateHelmetRiskData()
         await this.updateBeltRiskData()
         await this.updateAlcoholRiskData()
+        await this.updateIsAdmitData()
 
 
         await this.mergeFinalDataToFinalTable();
@@ -1395,27 +1395,26 @@ class ProcessIntegrateController {
 
     async updateIsAdmitData() {
         try {
-
             const query = `
                 UPDATE integrate_final
                 SET admit = 1
-                WHERE is_death IS NULL
+                WHERE admit IS NULL
                   AND (
                     (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 3, 6, 7))
                         OR
-                    (is_ward REGEXP '^-?[0-9]+$' AND CAST(is_ward AS UNSIGNED) IN (1,2,3,4,5,6))
-                        or
+                    (is_staward REGEXP '^-?[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (1,2,3,4,5,6))
+                        OR
                     (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
-                        or
+                        OR
                     is_pmi = 1
                         OR
                     eclaim_injury_status like '%ปานกลาง%'
                         OR
-                    eclaim_injury_status = '%สาหัส%'
+                    eclaim_injury_status like '%สาหัส%'
                         OR
-                    eclaim_injury_status = '%สาหัส%'
+                    eclaim_injury_status like '%สาหัส%'
                         OR
-                    eclaim_injury_status = '%สูญเสีย%'
+                    eclaim_injury_status like '%สูญเสีย%'
                         OR
                     police_vehicle_injury like '%นอนรักษา%'
                     ) AND project_id = :projectId;
@@ -1442,7 +1441,7 @@ class ProcessIntegrateController {
                   AND (
                     (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 6))
                         OR
-                    (is_ward REGEXP '^-?[0-9]+$' AND CAST(is_ward AS UNSIGNED) IN (5))
+                    (is_staward REGEXP '^-?[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (5))
                         or
                     (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
                         or
