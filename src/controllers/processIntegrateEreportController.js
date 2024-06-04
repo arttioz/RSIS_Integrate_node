@@ -1,27 +1,14 @@
 
-const {log} = require("debug");
 const moment = require('moment');
 
 // Import all models
-const EclaimMergeData = require('../models/EclaimMergeData');
 const EReportMergeData = require('../models/EReportMergeData');
 
-const ISMergeData = require('../models/ISMergeData');
-const PoliceEventMergeData = require('../models/PoliceEventMergeData');
-const PoliceVehicleMergeData = require('../models/PoliceVehicleMergeData');
-const PrepareMerge = require('../models/PrepareMerge');
 const PrepareMergeEreport = require('../models/PrepareMergeEreport');
-const Project = require('../models/Project');
-const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const ProjectIntegrateFinalEreport = require('../models/ProjectIntegrateFinalEreport');
-const IntegrateFinal = require('../models/IntegrateFinal');
 const IntegrateFinalFull = require('../models/IntegrateFinalFull');
 
-const dbServer = require('../../config/connections/db_server');
 const {QueryTypes, Op} = require("sequelize");
-
-const provinces = require('../utils/provinces');
-const ISRawData = require("../models/raw/ISRawData");
 
 require('dotenv').config();
 
@@ -571,6 +558,7 @@ class ProcessIntegrateEreportController {
                this.assignValue(integrateRowData, dataRow, "hospcode");
                this.assignValue(integrateRowData, dataRow, "alat");
                this.assignValue(integrateRowData, dataRow, "along");
+               this.assignValue(integrateRowData, dataRow, "admit");
 
             }
             bulkData.push(integrateRowData);
@@ -660,6 +648,7 @@ class ProcessIntegrateEreportController {
         if (row.lname === undefined) row.lname = null;
         if (row.cid === undefined) row.cid = null;
         if (row.gender === undefined) row.gender = null;
+        if (row.admit === undefined) row.admit = null;
         if (row.nationality === undefined) row.nationality = null;
         if (row.dob === undefined) row.dob = null;
         if (row.age === undefined) row.age = null;
@@ -852,6 +841,7 @@ class ProcessIntegrateEreportController {
                     accdate: row.accdate,
                     hospdate: row.hospdate,
                     hospcode: row.hospcode,
+                    admin: row.admin,
                     project_id: 0,
                     row_num: rowNum
                 };

@@ -41,7 +41,8 @@ ProjectIntegrateFinalEreport.init(
         updated_at: DataTypes.DATE,
         acc_province_id: DataTypes.INTEGER(11),
         url_video: DataTypes.STRING(255),
-        project_id: DataTypes.INTEGER(11)
+        project_id: DataTypes.INTEGER(11),
+        admin: DataTypes.INTEGER(1)
     },
     {
         sequelize:dbServer,

@@ -40,6 +40,7 @@ PrepareMergeEreport.init({
     project_id: DataTypes.INTEGER,
     project_file_id: DataTypes.INTEGER,
     row_num: DataTypes.INTEGER,
+    admit: DataTypes.INTEGER,
 }, {
     sequelize:dbServer,
     modelName: 'PrepareMergeEreport',

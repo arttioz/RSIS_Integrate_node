@@ -770,6 +770,9 @@ class ProcessIntegrateController {
         await this.updateBeltRiskData()
         await this.updateAlcoholRiskData()
         await this.updateIsAdmitData()
+        await this.updateGender()
+        await this.updateGPS()
+        await this.updateDistrict()
 
 
         await this.mergeFinalDataToFinalTable();
@@ -1427,6 +1430,67 @@ class ProcessIntegrateController {
             console.error('Error', error);
         }
     }
+
+
+    async updateGender() {
+        try {
+            const query = `
+                UPDATE integrate_final
+                SET gender = 1
+                WHERE gender = 2
+                  AND (
+                    (is_sex = 1)
+                        OR
+                    (police_vehicle_sex = "ชาย")
+                        OR
+                    (eclaim_gender = "ชาย")
+                    ) AND project_id = :projectId;
+                `;
+
+            await this.executeUpdate(query, this.project_id);
+
+            console.log("Update Is Gender successfully.");
+        } catch(error) {
+            console.error('Error', error);
+        }
+    }
+
+
+    async updateGPS() {
+        try {
+            const query = `
+                UPDATE integrate_final
+                SET alat = eclaim_along,
+                    along =  eclaim_alat
+                WHERE alat > 18
+                  AND  eclaim_along > 0
+                  AND project_id = :projectId;
+                `;
+
+            await this.executeUpdate(query, this.project_id);
+
+            console.log("Update Is GPS successfully.");
+        } catch(error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateDistrict() {
+        try {
+            const query = `
+            UPDATE integrate_final
+            SET aaumpor = REPLACE(aaumpor, 'อำเภอ', '')
+            WHERE project_id = :projectId;
+        `;
+
+            await this.executeUpdate(query, { projectId: this.project_id });
+
+            console.log("Update is aaumpor successfully.");
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
 
 
 

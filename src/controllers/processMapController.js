@@ -10,7 +10,7 @@ const {Op} = require("sequelize");
 require('dotenv').config();
 
 class ProcessMapController {
-    constructor(startDate,endDate, meters=100) {
+    constructor(startDate,endDate, meters= 100.0) {
         this.startDate = startDate
         this.endDate = endDate
         this.meters = meters
@@ -65,19 +65,19 @@ class ProcessMapController {
 
     clusterData(data) {
         const kms_per_radian = 6371.0088;
-        const epsilon = this.meters / 1000 / kms_per_radian; // 100 meters
+        const epsilon = (this.meters / 1000.0) / kms_per_radian; // 100 meters
         const coords = data.map(d => [this.toRadians(d.Acc_lat), this.toRadians(d.Acc_long)]);
 
-        const haversineDistance = (pointA, pointB) => {
-            const R = 6371; // Radius of the Earth in km
-            const dLat = this.toRadians(pointB[0] - pointA[0]);
-            const dLon = this.toRadians(pointB[1] - pointA[1]);
-            const lat1 = this.toRadians(pointA[0]);
-            const lat2 = this.toRadians(pointB[0]);
 
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.sin(dLon/2) * Math.sin(dLon/2) * Math.cos(lat1) * Math.cos(lat2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const haversineDistance = (pointA, pointB) => {
+            const R = 6371.0088; // Radius of the Earth in km
+            const dLat = pointB[0] - pointA[0];
+            const dLon = pointB[1] - pointA[1];
+            const lat1 = pointA[0];
+            const lat2 = pointB[0];
+
+            const a = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return R * c; // Distance in km
         };
 

@@ -13,6 +13,7 @@ IntegrateFinal.init({
     dob: { type: DataTypes.DATE },
     age: { type: DataTypes.INTEGER },
     injury_date: { type: DataTypes.DATE },
+    admit: { type: DataTypes.INTEGER },
     is_death: { type: DataTypes.BOOLEAN },
     occupation: { type: DataTypes.STRING(100) },
     hdate: { type: DataTypes.DATE },
