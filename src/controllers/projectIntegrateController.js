@@ -469,7 +469,6 @@ class ProjectIntegrateController {
 }
 module.exports = ProjectIntegrateController;
 
-
 module.exports = {
 
     autoProjectProvince: async function (req, res) {
@@ -539,6 +538,52 @@ module.exports = {
 
                 run_startDate = run_startDate.add(rangeDate + 1, 'days');
             }
+        }
+
+        res.json({"code":200, "message":"Job success"})
+    },
+
+
+    autoProjectCustomProvince: async function (req, res) {
+
+        let startDateInput = req.query.startDate;
+        let endDateInput = req.query.endDate;
+        let province_code = req.query.provinceCode;
+        let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+        let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+        if (!checkStart || !checkEnd){
+            res.json({"code":400, "message":"Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+        }
+
+        const startDate = moment(startDateInput);
+        const endDateLimit = moment(endDateInput);
+
+
+        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        let run_startDate = startDate.clone();
+
+        while (run_startDate.isBefore(endDateLimit)) {
+
+            let preDate = run_startDate.clone().subtract(preRangDate,'days');
+            let endDate = run_startDate.clone().add(rangeDate,'days');
+            let subDate = endDate.clone().add(subRangeDate,'days');
+
+
+            if (provinces.hasOwnProperty(province_code)){
+
+                const startTime = new Date(); // Start timing
+                await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
+
+                const endTime = new Date(); // End timing
+                const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                console.log(`Total time: ${totalTime} ms`);
+            }
+
+            run_startDate = run_startDate.add(rangeDate + 1, 'days');
         }
 
         res.json({"code":200, "message":"Job success"})

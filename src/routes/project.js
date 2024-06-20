@@ -7,6 +7,8 @@ router.get('/clean/', projectController.cleanDatabase);
 
 router.get('/start/autoproject/custom', projectController.autoProjectCustomDate);
 
+router.get('/start/autoproject/province/custom', projectController.autoProjectCustomProvince);
+
 router.get('/start/autoproject', projectController.autoProject);
 
 router.get('/start/autoProject/province', projectController.autoProjectProvince);

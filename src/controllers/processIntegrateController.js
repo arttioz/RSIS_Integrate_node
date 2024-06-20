@@ -282,7 +282,7 @@ class ProcessIntegrateController {
 
         if (row_1.is_cid_good == 1 && row_2.is_cid_good == 1) {
             if (row_1.is_confirm_thai) {
-                if (row_1.cid_num - row_2.cid_num === 0) {
+                if ( (row_1.cid_num - row_2.cid_num) == 0) {
                     IDMatch = true;
                 }
             } else {
@@ -355,13 +355,11 @@ class ProcessIntegrateController {
 
     async makeISColumnForMerge(row) {
 
-
         let difDate = moment(row.adate, "YYYY-MM-DD").diff(moment(this.dateFrom, "YYYY-MM-DD"), 'days');
 
         row.table_name = "is";
         row.difdatefrom2000 = difDate;
         row.data_id = row.ref;
-
 
         // row.name = row.name;
         row.lname = row.fname;
@@ -517,23 +515,21 @@ class ProcessIntegrateController {
     }
 
     async mergeDataProcess() {
-        const prepareMerge = await PrepareMerge.findAll({
-            order: dbServer.literal(`
-            CASE
-            WHEN table_name = 'is' THEN 1
-            WHEN table_name = 'eclaim' THEN 2
-            WHEN table_name = 'police' THEN 3
-            ELSE 4
-            END
-            `)
-        });
+            const prepareMerge = await PrepareMerge.findAll({
+                order: dbServer.literal(`
+                CASE
+                WHEN table_name = 'is' THEN 1
+                WHEN table_name = 'eclaim' THEN 2
+                WHEN table_name = 'police' THEN 3
+                ELSE 4
+                END
+                `)
+            });
 
         const size = prepareMerge.length;
         console.log("Size: ", size);
 
         let isBegin = -1;
-        let eclaimBegin = -1;
-        let policeBegin = -1;
         let mergeArray = [];
         let matchRow = {};
         let matchedRowId = {}; // Remember what is matched
@@ -541,16 +537,23 @@ class ProcessIntegrateController {
 
         prepareMerge.forEach((row, index) => {
             mergeArray[row.id] = { row: row, match: [] }; // Use zero-based indexing
-
-            if (row.table_name === "is" && isBegin === -1) {
-                isBegin = row.id;
-            } else if (row.table_name === "eclaim" && eclaimBegin === -1) {
-                eclaimBegin = row.id;
-            } else if (row.table_name === "police" && policeBegin === -1) {
-                policeBegin = row.id;
-            }
         });
 
+        const eclaimBegin = (await PrepareMerge.findOne({
+            where: { table_name: 'eclaim' },
+            order: [['id', 'ASC']],
+            attributes: ['id']
+        }))?.id || -1;
+
+        const policeBegin = (await PrepareMerge.findOne({
+            where: { table_name: 'police' },
+            order: [['id', 'ASC']],
+            attributes: ['id']
+        }))?.id || -1;
+
+
+        let bulkData = [];
+        let bulkLogData = [];
         // Start Match
         for(let index = 1; index <= size; index++) {
 
@@ -571,14 +574,17 @@ class ProcessIntegrateController {
             }else if (table === "police") {
                 if (next < size) next = size;
             }
-
+            let check_id_list = "";
             for(let search_i = next; search_i <= size; search_i++){
                 let search_r = mergeArray[search_i].row;
                 let search_m = mergeArray[search_i].match;
 
+                check_id_list += search_r.id + ",";
+
                 let check = await this.checkMatch(row, search_r); // Assuming checkMatch returns a Promise
 
                 if (check.result > 0) {
+
                     match.push(search_r.id);
                     search_m.push(row.id);
 
@@ -593,26 +599,84 @@ class ProcessIntegrateController {
                         }
                         matchRow[row.id].push(search_r);
                     }
-                }
 
+                    // Collect bulk update data
+                    let updateFields = {
+                        id: search_r.id,
+                        match_id: row.id
+                    };
+
+                    if (row.table_name === "is") {
+                        updateFields.in_is = 1;
+                        updateFields.is_id = row.data_id;
+                        updateFields.is_log = check.log;
+                    } else if (row.table_name === "police") {
+                        updateFields.in_police = 1;
+                        updateFields.police_id = row.data_id;
+                        updateFields.police_log = check.log;
+                    } else if (row.table_name === "eclaim") {
+                        updateFields.in_eclaim = 1;
+                        updateFields.eclaim_id = row.data_id;
+                        updateFields.eclaim_log = check.log;
+                    }
+
+                    bulkData.push(updateFields);
+
+                    updateFields = {
+                        id: row.id,
+                        match_id: search_r.id
+                    };
+
+                    if (search_r.table_name === "is") {
+                        updateFields.in_is = 1;
+                        updateFields.is_id = search_r.data_id;
+                        updateFields.is_log = check.log;
+                    } else if (search_r.table_name === "police") {
+                        updateFields.in_police = 1;
+                        updateFields.police_id = search_r.data_id;
+                        updateFields.police_log = check.log;
+                    } else if (search_r.table_name === "eclaim") {
+                        updateFields.in_eclaim = 1;
+                        updateFields.eclaim_id = search_r.data_id;
+                        updateFields.eclaim_log = check.log;
+                    }
+
+                    bulkData.push(updateFields);
+                }
                 // Update Match to Search Row
                 mergeArray[search_i].match = search_m;
             }
+
+            let logFields = {
+                id: row.id,
+                log: check_id_list
+            };
+            bulkLogData.push(logFields);
 
             // update All Match of the Row to mergeArray
             mergeArray[index].match = match;
         }
 
-        let bulkData = [];
+        let finalBulkData = [];
         for (let data of mergeArray.slice(1)) { // Skip the first index if starting from 1
             const matchIdStr = data.match.join(",");
-            bulkData.push({ id: data.row.id, match_id: matchIdStr })
+            finalBulkData.push({ id: data.row.id, match_id: matchIdStr });
         }
 
-        // Use bulkCreate to update all rows at once
+        // Use bulkCreate to update bulkData first
         await PrepareMerge.bulkCreate(bulkData, {
+            updateOnDuplicate: ["in_is", "is_id", "is_log", "in_police", "police_id", "police_log", "in_eclaim", "eclaim_id", "eclaim_log" ,"match_id"]
+        });
+
+        // Then use bulkCreate to update finalBulkData
+        await PrepareMerge.bulkCreate(finalBulkData, {
             updateOnDuplicate: ["match_id"]
         });
+
+        await PrepareMerge.bulkCreate(bulkLogData, {
+            updateOnDuplicate: ["log"]
+        });
+
     }
 
     async  writeMergeDataProcess() {

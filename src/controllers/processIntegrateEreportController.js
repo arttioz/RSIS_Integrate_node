@@ -267,7 +267,6 @@ class ProcessIntegrateEreportController {
 
         let difDate = moment(row.acc_date, "YYYY-MM-DD").diff(moment(this.dateFrom, "YYYY-MM-DD"), 'days');
 
-
         let nameArr =  await this.separateName(row.fullname) ;
         if (nameArr.length > 0) {
             row.name = nameArr[0];
