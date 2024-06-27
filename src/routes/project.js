@@ -13,6 +13,8 @@ router.get('/start/autoproject', projectController.autoProject);
 
 router.get('/start/autoProject/province', projectController.autoProjectProvince);
 
+router.get('/start/autoProject/his', projectController.autoProjectHISProvince);
+
 
 router.get('/start/autoProject/ereport', projectController.autoCompareWithEreportCustomDate);
 

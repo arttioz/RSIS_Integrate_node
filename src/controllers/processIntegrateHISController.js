@@ -2,56 +2,38 @@
 const moment = require('moment');
 
 // Import all models
-const EReportMergeData = require('../models/EReportMergeData');
+const HISMergeData = require('../models/HisMergeData');
 
-const PrepareMergeEreport = require('../models/PrepareMergeEreport');
-const ProjectIntegrateFinalEreport = require('../models/ProjectIntegrateFinalEreport');
+const PrepareMergeHIS = require('../models/PrepareMergeHIS');
+const ProjectIntegrateFinalHIS = require('../models/ProjectIntegrateFinalHIS');
 const IntegrateFinalFull = require('../models/IntegrateFinalFull');
+// const IntegrateFinalFullHIS = require('../models/IntegrateFinalFullHIS');
 
 const {QueryTypes, Op} = require("sequelize");
-const PrepareMerge = require("../models/PrepareMerge");
 
 require('dotenv').config();
 
-class ProcessIntegrateEreportController {
+class ProcessIntegrateHISController {
 
     static STATUS_INTEGRATE_SUCCESSED = "บูรณาการสำเร็จ";
 
-    constructor(startDate,endDate) {
+    constructor(startDate,endDate,provinceCode) {
         this.dateFrom = moment('2000-01-01 00:00:00', 'YYYY-MM-DD HH:mm:ss');
 
-        const walkNum = 0;
-        const bicycleNum = 1;
-        const motorcycleNum = 2;
-        const tricycleNum = 3;
-        const carNum = 4;
-        const truckNum = 5;
-        const bigTruckNum = 6;
-        const busNum = 7;
-
-        this.vehicleTxt = [];
-        this.vehicleTxt[walkNum] = "เดินเท้า";
-        this.vehicleTxt[bicycleNum] = "จักรยาน";
-        this.vehicleTxt[motorcycleNum] = "รถจักรยานยนต์";
-        this.vehicleTxt[tricycleNum] = "ยานยนต์สามล้อ";
-        this.vehicleTxt[carNum] = "รถยนต์";
-        this.vehicleTxt[truckNum] = "รถบรรทุกเล็กหรือรถตู้";
-        this.vehicleTxt[bigTruckNum] = "รถบรรทุกหนัก";
-        this.vehicleTxt[busNum] = "รถโดยสาร";
-
-        this.ereport_rows = [];
+        this.his_rows = [];
         this.rsis_rows = [];
 
         this.startDate = startDate
         this.endDate = endDate
+        this.provinceCode = provinceCode
 
     }
 
     async mergeRSIS() {
 
         try {
-            await PrepareMergeEreport.destroy({truncate: true});
-            await ProjectIntegrateFinalEreport.destroy({truncate: true});
+            await PrepareMergeHIS.destroy({truncate: true});
+            await ProjectIntegrateFinalHIS.destroy({truncate: true});
 
             await this.prepareData();
             await this.mergeDataProcess();
@@ -65,12 +47,12 @@ class ProcessIntegrateEreportController {
     }
 
     async prepareData(){
-        console.time('prepareMergeEreport');
+        console.time('prepareMergeHIS');
         try {
-            const rows = await this.prepareMergeEreportData();
-            await this.checkDuplicateInSameTable(rows, EReportMergeData);
-            this.ereport_rows = rows.filter(row => !row.is_duplicate);
-            await this.savePrepareData( this.ereport_rows );
+            const rows = await this.prepareMergeHISData();
+            await this.checkDuplicateInSameTable(rows, HISMergeData);
+            this.his_rows = rows.filter(row => !row.is_duplicate);
+            await this.savePrepareData( this.his_rows );
 
 
             this.rsis_rows = await this.prepareMergeRsisData();
@@ -83,13 +65,13 @@ class ProcessIntegrateEreportController {
         }
     }
 
-    async prepareMergeEreportData() {
+    async prepareMergeHISData() {
         try {
-            let rows = await EReportMergeData.findAll();
-            console.log("EReport row: " + rows.length);
+            let rows = await HISMergeData.findAll();
+            console.log("HIS row: " + rows.length);
 
             rows = await Promise.all(rows.map(row => this.setDefaultColumn(row)));
-            rows = await Promise.all(rows.map(row => this.makeEreportColumnForMerge(row)));
+            rows = await Promise.all(rows.map(row => this.makeHISColumnForMerge(row)));
 
             return rows;
         } catch(error) {
@@ -106,7 +88,8 @@ class ProcessIntegrateEreportController {
                     injury_date: {
                         [Op.gte]: this.startDate.toDate() ,  // >= startDate
                         [Op.lte]: this.endDate.endOf('day').toDate() // Less than or equal to end of endDate
-                    }
+                    },
+                    aprovince_code: this.provinceCode
                 },
             });
 
@@ -179,7 +162,7 @@ class ProcessIntegrateEreportController {
         }
     }
 
-    async  checkMatch(row_1, row_2) {
+    async checkMatch(row_1, row_2) {
         var matchResult = 0;
         var matchLog = 0;
 
@@ -193,7 +176,7 @@ class ProcessIntegrateEreportController {
 
         if (row_1.is_cid_good == 1 && row_2.is_cid_good == 1) {
             if (row_1.is_confirm_thai) {
-                if (row_1.cid_num - row_2.cid_num === 0) {
+                if ( (row_1.cid_num - row_2.cid_num) == 0) {
                     IDMatch = true;
                 }
             } else {
@@ -228,7 +211,7 @@ class ProcessIntegrateEreportController {
             aDateMatch = true;
         }
 
-        if (Math.abs(difDate) <= 1) {
+        if (Math.abs(difDate) <= 2) {
             aDateSameMatch = true;
         }
 
@@ -264,35 +247,26 @@ class ProcessIntegrateEreportController {
         return matchArr;
     }
 
-    async makeEreportColumnForMerge(row) {
+    async makeHISColumnForMerge(row) {
 
-        let difDate = moment(row.acc_date, "YYYY-MM-DD").diff(moment(this.dateFrom, "YYYY-MM-DD"), 'days');
+        //TODO fix this code for HIS
 
-        let nameArr =  await this.separateName(row.fullname) ;
-        if (nameArr.length > 0) {
-            row.name = nameArr[0];
-            if (nameArr.length >= 2) {
-                row.lname = nameArr[1];
-            }
-        }
+        let difDate = moment(row.date_serv, "YYYY-MM-DD").diff(moment(this.dateFrom, "YYYY-MM-DD"), 'days');
 
-        row.table_name = "e_report";
+        row.table_name = "his";
         row.difdatefrom2000 = difDate;
         row.data_id = row.id;
-
 
         row = await this.cleanNameData(row);
 
         row.nameSave = row.name;
         row.lnameSave = row.lname;
 
-        row.age = row.age;
+        // row.age = row.age;
+        row.gender = row.sex;
+        row.nationality = row.nation;
+        row.is_death = row.isdeath;
 
-        if (row.sex === "ชาย") {
-            row.gender = 1;
-        } else {
-            row.gender = 2;
-        }
 
         row.name_lenght = row.name.length;
         const pid = row.cid.replace(/\D/g, '');
@@ -301,17 +275,20 @@ class ProcessIntegrateEreportController {
         row.is_cid_good = (row.cid !== null && row.cid.length > 10 && row.cid_num !== 0);
         row.is_confirm_thai = /^\d+$/.test(row.cid);
 
-        row.accdate = row.acc_date;
+        row.accdate = row.date_serv;
 
         if(row.status_person == "เสียชีวิต"){
             row.is_death = 1
         }
 
-        row.atumbol = row.subdistrict;
-        row.aaumpor = row.district;
-        row.aprovince = row.province;
-        row.alat = row.latitude;
-        row.along = row.longitude;
+        row.dob = row.birth;
+        row.vehicle_type = this.getVehicleType(row);
+
+        // row.atumbol = row.subdistrict;
+        // row.aaumpor = row.district;
+        // row.aprovince = row.province;
+        // row.alat = row.latitude;
+        // row.along = row.longitude;
 
 
         return row;
@@ -349,11 +326,13 @@ class ProcessIntegrateEreportController {
 
         row.accdate = row.injury_date;
 
+        row.vehicle_type = this.getVehicleType(row)
+
         return row;
     }
 
     async mergeDataProcess() {
-        const prepareMerge = await PrepareMergeEreport.findAll();
+        const prepareMerge = await PrepareMergeHIS.findAll();
 
         const size = prepareMerge.length;
         console.log("Size of all rows: ", size);
@@ -367,7 +346,7 @@ class ProcessIntegrateEreportController {
         });
 
 
-        const rsisBegin = (await PrepareMerge.findOne({
+        const rsisBegin = (await PrepareMergeHIS.findOne({
             where: { table_name: 'rsis' },
             order: [['id', 'ASC']],
             attributes: ['id']
@@ -387,7 +366,7 @@ class ProcessIntegrateEreportController {
                 matchRow[row.id].push(row);
             }
 
-            if (table === "e_report") {
+            if (table === "his") {
                 if (next < rsisBegin) next = rsisBegin;
             } else if (table === "rsis") {
                 break;
@@ -438,14 +417,14 @@ class ProcessIntegrateEreportController {
         }
 
         // Use bulkCreate to update all rows at once
-        await PrepareMergeEreport.bulkCreate(bulkData, {
+        await PrepareMergeHIS.bulkCreate(bulkData, {
             updateOnDuplicate: ["match_id"]
         });
     }
 
     async  writeMergeDataProcess() {
         // Fetch and order the prepare_merge data
-        const prepareMergeRows = await PrepareMergeEreport.findAll({
+        const prepareMergeRows = await PrepareMergeHIS.findAll({
             order: [
                 ['id', 'DESC'] // Keeps your ordering by id in ascending order
             ]
@@ -505,7 +484,7 @@ class ProcessIntegrateEreportController {
 
     async  writeFinalIntegrate(matchRow) {
 
-        const ereport_Arr =  await this.rowsToArrayKey(this.ereport_rows);
+        const his_Arr =  await this.rowsToArrayKey(this.his_rows);
         const rsis_Arr = await this.rowsToArrayKey(this.rsis_rows);
         const size =  Object.keys(matchRow).length;;
         console.log(`writeFinalIntegrate Size: ${size}`);
@@ -523,9 +502,9 @@ class ProcessIntegrateEreportController {
                 let dataRow;
 
                 switch (row.table_name) {
-                    case "e_report":
-                        dataRow = ereport_Arr[id];
-                        integrateRowData.e_report_id = dataRow.data_id;
+                    case "his":
+                        dataRow = his_Arr[id];
+                        integrateRowData.his_id = dataRow.data_id;
                         break;
                     case "rsis":
                         dataRow = rsis_Arr[id];
@@ -566,7 +545,7 @@ class ProcessIntegrateEreportController {
 
         // Use bulkCreate to insert all data at once
         try {
-            await ProjectIntegrateFinalEreport.bulkCreate(bulkData);
+            await ProjectIntegrateFinalHIS.bulkCreate(bulkData);
             console.log('Bulk insert successful');
         } catch (error) {
             console.error('Error during bulk insert:', error);
@@ -597,34 +576,21 @@ class ProcessIntegrateEreportController {
         const busTxt = "รถบัส";
         const omniBusTxt = "รถโดยสาร";
 
-        if (row.table_name === "is") {
-            const codeW = parseInt(row.injp, 10);
-            const code = parseInt(row.injt, 10);
+        if (row.table_name === "his") {
+            let code = row.diagcode.toUpperCase();
 
-            if (codeW === 1) vehicle_type = walkNum;
-            else if (code === 1) vehicle_type = bicycleNum;
-            else if (code === 2) vehicle_type = motorcycleNum;
-            else if (code === 3) vehicle_type = tricycleNum;
-            else if (code === 4) vehicle_type = carNum;
-            else if (code === 5) vehicle_type = truckNum;
-            else if (code === 6) vehicle_type = bigTruckNum;
-            else if (code === 7) vehicle_type = bigTruckNum;
-            else if (code === 8) vehicle_type = busNum;
-            else if (code === 9) vehicle_type = busNum;
-            else if (code === 10) vehicle_type = carNum;
-            else if (code === 18) vehicle_type = truckNum;
+            if (code.includes("V0")) vehicle_type = walkNum;
+            else if (code.includes("V1")) vehicle_type = bicycleNum;
+            else if (code.includes("V2")) vehicle_type = motorcycleNum;
+            else if (code.includes("V3")) vehicle_type = tricycleNum;
+            else if (code.includes("V4")) vehicle_type = carNum;
+            else if (code.includes("V5")) vehicle_type = truckNum;
+            else if (code.includes("V6")) vehicle_type = bigTruckNum;
+            else if (code.includes("V7")) vehicle_type = busNum;
         }
 
-        if (row.table_name === "eclaim" || row.table_name === "police") {
-            let code;
-
-            if (row.table_name === "eclaim"){
-                code = row.vehicle_type;
-            }
-            else{
-                code = row.vehicle;
-            }
-
+        if (row.table_name === "rsis" ) {
+            let code = row.vehicle_1;
 
             if (code === null || code.includes(walkTxt)) vehicle_type = walkNum;
             else if (code.includes(motorcycleTxt)) vehicle_type = motorcycleNum;
@@ -758,10 +724,10 @@ class ProcessIntegrateEreportController {
 
 
     async updateMatch(row_1, row_2, log) {
-        if (row_1.table_name === "e_report") {
-            row_2.in_e_report = 1;
-            row_2.e_report_id = row_1.data_id;
-            row_2.e_report_log = log;
+        if (row_1.table_name === "his") {
+            row_2.in_his = 1;
+            row_2.his_id = row_1.data_id;
+            row_2.his_log = log;
 
         } else if (row_1.table_name === "rsis") {
             row_2.in_rsis = 1;
@@ -850,7 +816,7 @@ class ProcessIntegrateEreportController {
         }
 
         try {
-            await PrepareMergeEreport.bulkCreate(prepareMergesData);
+            await PrepareMergeHIS.bulkCreate(prepareMergesData);
         } catch (exception) {
             console.error(prepareMergesData, exception);
         }
@@ -859,4 +825,4 @@ class ProcessIntegrateEreportController {
 
 }
 
-module.exports = ProcessIntegrateEreportController;
+module.exports = ProcessIntegrateHISController;

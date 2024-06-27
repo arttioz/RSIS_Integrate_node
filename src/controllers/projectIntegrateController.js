@@ -8,12 +8,14 @@ const ISRawData = require('../models/raw/ISRawData');
 const PoliceEventApi = require('../models/raw/PoliceEventApi');
 const PoliceVehicleApi = require('../models/raw/PoliceVehicleApi');
 const EReportApi = require('../models/raw/EReportApi');
+const HISApi = require('../models/raw/HISApi');
 
 const EclaimMergeData = require('../models/EclaimMergeData');
 const ISMergeData = require('../models/ISMergeData');
 const PoliceEventMergeData = require('../models/PoliceEventMergeData');
 const PoliceVehicleMergeData = require('../models/PoliceVehicleMergeData');
 const EReportMergeData = require('../models/EReportMergeData');
+const HisMergeData = require('../models/HisMergeData');
 
 const PrepareMerge = require('../models/PrepareMerge');
 const Project = require('../models/Project');
@@ -27,6 +29,7 @@ const provinces = require('../utils/provinces');
 
 const ProcessIntegrateController = require('./processIntegrateController');
 const ProcessIntegrateEreportController = require('./processIntegrateEreportController');
+const ProcessIntegrateHISController = require('./processIntegrateHISController');
 const ProcessMapController = require('./processMapController');
 const e = require("express");
 require('dotenv').config();
@@ -64,9 +67,6 @@ class ProjectIntegrateController {
         await this.importPoliceEventAPIData(startDate, endDate, project)
         await this.importPoliceVehicleAPIData(startDate, endDate, project)
     }
-
-
-
 
     static async getProject(preDate,startDate,endDate,subDate,provinceCode){
 
@@ -447,6 +447,116 @@ class ProjectIntegrateController {
         if (newRecordsData.length > 0) {
             await EReportMergeData.bulkCreate(newRecordsData);
         }
+    }
+
+    static async importHISData(startDate,endDate,provinceCode){
+
+        const columnMapping = {
+            id: 'id',
+            pid: 'PID',
+            hospcode: 'HOSPCODE',
+            date_serv: 'DATE_SERV',
+            seq: 'SEQ',
+            an: 'AN',
+            diagcode: 'DIAGCODE',
+            isdeath: 'ISDEATH',
+            cdeath: 'CDEATH',
+            price: 'Price',
+            payprice: 'PAYPRICE',
+            actualpay: 'ACTUALPAY',
+            dateinhosp: 'DATEINHOSP',
+            cid: 'CID',
+            name: 'NAME',
+            lname: 'LNAME',
+            sex: 'sex',
+            nation: 'NATION',
+            birth: 'BIRTH',
+            age: 'AGE',
+            opd_code: 'OPD_CODE',
+            ipd_code: 'IPD_CODE',
+            allcode: 'ALLCODE',
+            s0: 'S0',
+            s1: 'S1',
+            s2: 'S2',
+            s3: 'S3',
+            s4: 'S4',
+            s5: 'S5',
+            s6: 'S6',
+            s7: 'S7',
+            s8: 'S8',
+            s9: 'S9',
+            aeplace: 'AEPLACE',
+            aetype: 'AETYPE',
+            airway: 'AIRWAY',
+            alcohol: 'ALCOHOL',
+            splint: 'SPLINT',
+            belt: 'BELT',
+            helmet: 'HELMET',
+            coma_eye: 'COMA_EYE',
+            coma_movement: 'COMA_MOVEMENT',
+            coma_speak: 'COMA_SPEAK',
+            nacrotic_drug: 'NACROTIC_DRUG',
+            stopbleed: 'STOPBLEED',
+            traffic: 'TRAFFIC',
+            typein_ae: 'TYPEIN_AE',
+            urgency: 'URGENCY',
+            vehicle: 'VEHICLE',
+            province_code: 'province_id'
+        };
+
+
+        await HisMergeData.destroy({ truncate : true, cascade: false });
+
+        try{
+            // Convert startDate and endDate to Date objects
+            const startDateObj = moment(startDate).startOf('day').toDate();
+            const endDateObj = moment(endDate).endOf('day').toDate();
+
+            // Fetch records that meet the date requirements
+            let rawRecords = await HISApi.findAll({
+                where: {
+                    DATE_SERV: {
+                        [Op.gte]: startDateObj,
+                        [Op.lte]: endDateObj
+                    },
+                    province_id: provinceCode
+                }
+            });
+
+            console.log("HIS Record",rawRecords.length);
+
+            // Prepare an array for the new records
+            let newRecordsData = [];
+            for (let oldRecord of rawRecords) {
+                let newRecordData = {};
+                for (let newColumn in columnMapping) {
+                    let oldColumn = columnMapping[newColumn];
+                    newRecordData[newColumn] = oldRecord[oldColumn];
+                }
+
+                // Populate additional fields for temp_ereport_clean
+                newRecordData['match'] = ''; // Default or logic to populate
+                newRecordData['is_duplicate'] = 0; // Default or logic to check duplicates
+                newRecordData['old_id'] = 0;
+                newRecordData['project_file_id'] = null; // Assuming there is a file_id in the project object
+                newRecordData['project_id'] = null;
+                newRecordData['created_at'] = new Date(); // Current time
+                newRecordData['updated_at'] = new Date(); // Current time
+
+                newRecordsData.push(newRecordData);
+            }
+
+            // Bulk-create the new records
+            if (newRecordsData.length > 0) {
+                await HisMergeData.bulkCreate(newRecordsData);
+            }
+
+        }catch (e) {
+            console.log(e);
+        }
+
+
+
 
     }
 
@@ -587,6 +697,63 @@ module.exports = {
         }
 
         res.json({"code":200, "message":"Job success"})
+    },
+
+
+    autoProjectHISProvince: async function (req, res) {
+        let startDateInput = "";
+        let endDateInput = "";
+        let province_code= "";
+        let checkStart = ""
+        let checkEnd = "";
+
+        try{
+            startDateInput  = req.query.startdate || req.query.startDate;
+             endDateInput = req.query.enddate || req.query.endDate;
+             province_code = req.query.provinceCode;
+             checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+             checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+            if (!checkStart || !checkEnd){
+                res.json({"code":400, "message":"Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+            }
+        }catch (error) {
+            console.error(error);
+        }
+
+        const startDate = moment(startDateInput);
+        const endDateLimit = moment(endDateInput);
+
+
+        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        let run_startDate = startDate.clone();
+
+        while (run_startDate.isBefore(endDateLimit)) {
+
+            let preDate = run_startDate.clone().subtract(preRangDate,'days');
+            let endDate = run_startDate.clone().add(rangeDate,'days');
+            let subDate = endDate.clone().add(subRangeDate,'days');
+
+
+            if (provinces.hasOwnProperty(province_code)){
+
+                const startTime = new Date(); // Start timing
+                await ProjectIntegrateController.importHISData(startDate,endDate,province_code)
+                let processController = new ProcessIntegrateHISController(startDate,endDate,province_code);
+                await processController.mergeRSIS()
+
+                const endTime = new Date(); // End timing
+                const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                console.log(`Total time: ${totalTime} ms`);
+            }
+
+            run_startDate = run_startDate.add(rangeDate + 1, 'days');
+        }
+
+        res.    json({"code":200, "message":"Job success"})
     },
 
     autoCompareWithEreportCustomDate: async function (req, res) {
