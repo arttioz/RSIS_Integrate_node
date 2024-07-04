@@ -1,9 +1,9 @@
 const { Model, DataTypes } = require('sequelize');
 const db_server = require('../../config/connections/db_server'); // Adjust this path as necessary
 
-class IntegrateFinalFullHIS extends Model {}
+class IntegrateFinalHIS extends Model {}
 
-IntegrateFinalFullHIS.init({
+IntegrateFinalHIS.init({
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
     name: { type: DataTypes.STRING(100) },
     lname: { type: DataTypes.STRING(100) },
@@ -370,11 +370,11 @@ IntegrateFinalFullHIS.init({
     uuid: { type: DataTypes.BIGINT }
 }, {
     sequelize:db_server, // This should be your Sequelize instance
-    tableName: 'integrate_final_full_his', // Adjust to match your actual table name
+    tableName: 'integrate_final_his', // Adjust to match your actual table name
     timestamps: true, // Set to false if your table does not have createdAt and updatedAt
     createdAt: 'created_at',
     updatedAt: 'updated_at',
-    modelName: 'IntegrateFinalFullHIS',
+    modelName: 'IntegrateFinalHIS',
 });
 
-module.exports = IntegrateFinalFullHIS;
+module.exports = IntegrateFinalHIS;

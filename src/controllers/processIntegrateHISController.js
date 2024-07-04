@@ -7,9 +7,19 @@ const HISMergeData = require('../models/HisMergeData');
 const PrepareMergeHIS = require('../models/PrepareMergeHIS');
 const ProjectIntegrateFinalHIS = require('../models/ProjectIntegrateFinalHIS');
 const IntegrateFinalFull = require('../models/IntegrateFinalFull');
-// const IntegrateFinalFullHIS = require('../models/IntegrateFinalFullHIS');
+const IntegrateFinalFullHIS = require('../models/IntegrateFinalFullHIS');
+const IntegrateFinalHIS = require('../models/IntegrateFinalHIS');
 
 const {QueryTypes, Op} = require("sequelize");
+const Project = require("../models/Project");
+const ProjectIntegrateFinal = require("../models/ProjectIntegrateFinal");
+const IntegrateFinal = require("../models/IntegrateFinal");
+const LibAddressMoi = require('../models/LibAddress'); // Adjust the path to your models
+const LibChangwat = require('../models/LibChangwat'); // Adjust the path to your models
+const Province = require('../models/Province'); // Adjust the path to your models
+
+const dbServer = require('../../config/connections/db_server');
+
 
 require('dotenv').config();
 
@@ -17,7 +27,7 @@ class ProcessIntegrateHISController {
 
     static STATUS_INTEGRATE_SUCCESSED = "บูรณาการสำเร็จ";
 
-    constructor(startDate,endDate,provinceCode) {
+     constructor(startDate, endDate, provinceCode) {
         this.dateFrom = moment('2000-01-01 00:00:00', 'YYYY-MM-DD HH:mm:ss');
 
         this.his_rows = [];
@@ -25,7 +35,8 @@ class ProcessIntegrateHISController {
 
         this.startDate = startDate
         this.endDate = endDate
-        this.provinceCode = provinceCode
+        this.provinceCode = provinceCode;
+        this.aprovince = "";
 
     }
 
@@ -34,10 +45,15 @@ class ProcessIntegrateHISController {
         try {
             await PrepareMergeHIS.destroy({truncate: true});
             await ProjectIntegrateFinalHIS.destroy({truncate: true});
+            await IntegrateFinalHIS.destroy({truncate: true});
+
+            let  result = await LibChangwat.findOne({where: {code: this.provinceCode}});
+            this.aprovince = result.name;
 
             await this.prepareData();
             await this.mergeDataProcess();
             await this.writeMergeDataProcess()
+            await this.updateProjectIntegrateFinalData();
 
 
         } catch (error) {
@@ -284,9 +300,19 @@ class ProcessIntegrateHISController {
         row.dob = row.birth;
         row.vehicle_type = this.getVehicleType(row);
 
+        if(row.alcohol == 1){
+            row.alcohol = 'ดื่ม'
+        }else if(row.alcohol == 2){
+            row.alcohol = 'ไม่ดื่ม'
+        }else if(row.alcohol == 9){
+            row.alcohol = 'ไม่ทราบ'
+        }
+
+        row.aprovince = row.province_code;
+
         // row.atumbol = row.subdistrict;
         // row.aaumpor = row.district;
-        // row.aprovince = row.province;
+
         // row.alat = row.latitude;
         // row.along = row.longitude;
 
@@ -511,6 +537,7 @@ class ProcessIntegrateHISController {
                         integrateRowData.rsis_id = dataRow.data_id;
                         break;
                 }
+                integrateRowData.aprovince = this.aprovince;
 
                this.assignValue(integrateRowData, dataRow, "name", "nameSave");
                this.assignValue(integrateRowData, dataRow, "lname", "lnameSave");
@@ -551,6 +578,147 @@ class ProcessIntegrateHISController {
             console.error('Error during bulk insert:', error);
         }
     }
+
+    async updateProjectIntegrateFinalData(){
+
+
+        await this.mergeDataToIntegrateFinal();
+        await this.updateRSISDataToFinalTable()
+        await this.updateHISDataToFinalTable();
+
+        await this.updateIsDeadData();
+        await this.updateVehicleData();
+        await this.updateRoadUserData();
+        await this.updateInjuryDateData();
+        await this.updateIsAdmitData();
+
+        await this.updateHelmetRiskData();
+        await this.updateBeltRiskData();
+        await this.updateAlcoholRiskData();
+
+        await this.mergeFinalDataToFinalTable();
+    }
+
+    async mergeFinalDataToFinalTable(){
+        await this.deleteOldData();
+
+        try {
+            // Fetch all data from IntegrateFinal
+            const data = await IntegrateFinalHIS.findAll();
+            const bulkData = data.map(entry => {
+                const { id, ...rest } = entry.get({ plain: true });
+                return rest;
+            });
+
+            // Bulk create in IntegrateFinalFull with the fetched data
+            await IntegrateFinalFullHIS.bulkCreate(bulkData);
+            console.log('Data create to Integrate Final Full successfully.');
+        } catch (error) {
+            console.error('Error copying data:', error);
+        }
+    }
+
+    async deleteOldData(){
+
+        const startDate = this.startDate; // Assuming 'start_date' is the field name
+        const endDate = this.endDate; // Assuming 'end_date' is the field name
+        const province_code = this.provinceCode; // Assuming 'end_date' is the field name
+
+        await IntegrateFinalFullHIS.destroy({
+            where: {
+                accdate: {
+                    [Op.gte]: startDate, // Greater than or equal to startDate
+                    [Op.lte]: endDate    // Less than endDate
+                },
+                aprovince_code: province_code
+            }
+        });
+
+        console.log('Delete Old record in Integrate Final Full HIS successfully');
+    }
+
+    async mergeDataToIntegrateFinal(){
+
+        const projectIntegrateRows = await ProjectIntegrateFinalHIS.findAll();
+
+        // Step 2: Prepare data for bulk insert
+        const dataForInsert = projectIntegrateRows.map(row => ({
+            name: row.name,
+            lname: row.lname,
+            cid: row.cid,
+            gender: row.gender,
+            nationality: row.nationality,
+            dob: row.dob,
+            age: row.age,
+            is_death: row.is_death,
+            occupation: row.occupation,
+            hdate: row.hdate,
+            alcohol: row.alcohol,
+            belt_risk: row.belt_risk,
+            helmet_risk: row.helmet_risk,
+            roaduser: row.roaduser,
+            vehicle_1: row.vehicle_1,
+            vehicle_plate_1: row.vehicle_plate_1,
+            accdate: row.accdate,
+            atumbol: row.atumbol,
+            aaumpor: row.aaumpor,
+            aprovince: row.aprovince,
+            aprovince_code: this.provinceCode,
+            vehicle_2: row.vehicle_2,
+            police_event_id: row.police_event_id,
+            hospcode: row.hospcode,
+            // eclaim_id: row.eclaim_id,
+            // eclaim_protocal: row.eclaim_protocal,
+            // is_id: row.is_id,
+            // is_protocal: row.is_protocal,
+            his_id: row.his_id,
+            his_protocal: row.his_protocal,
+            // police_id: row.police_id,
+            // police_protocal: row.police_protocal,
+            rsis_id: row.rsis_id,
+            rsis_protocal: row.rsis_protocal,
+            alat: row.alat,
+            along: row.along,
+            created_at: row.created_at, // Sequelize handles createdAt automatically, consider removing if not needed
+            updated_at: row.updated_at, // Same for updatedAt
+            acc_province_id: row.acc_province_id,
+            url_video: row.url_video,
+            uuid: row.id, // Ensure this mapping is correct for your logic
+            project_id: 0
+        }));
+
+        // Step 3: Perform bulk insert
+        await IntegrateFinalHIS.bulkCreate(dataForInsert);
+
+        console.log(`Merge Data To IntegrateFinalFullHIS successfully.`);
+    }
+
+    async updateRSISDataToFinalTable() {
+        // List of columns to update
+        const columnsToUpdate = Object.keys(IntegrateFinalFull.getAttributes()).filter(column => column !== 'id' && !column.startsWith('his_'));
+
+
+        // Dynamically generate the SET clause
+        const setClause = columnsToUpdate.map(column => `finalHIS.${column} = ff.${column}`).join(', ');
+
+        const query = `UPDATE integrate_final_his AS finalHIS
+                              LEFT JOIN integrate_final_full AS ff ON ff.id = finalHIS.rsis_id
+                           SET ${setClause}
+                       WHERE finalHIS.rsis_id IS NOT NULL`;
+
+        try {
+            await dbServer.query(query, {
+                type: QueryTypes.UPDATE
+            });
+
+            console.log('Update successful');
+        } catch (error) {
+            console.error('Error updating IntegrateFinalFullHIS:', error);
+        }
+    }
+
+
+    ///////////////////////////////////////////////////
 
     getVehicleType(row) {
         let vehicle_type = 99;
@@ -727,12 +895,12 @@ class ProcessIntegrateHISController {
         if (row_1.table_name === "his") {
             row_2.in_his = 1;
             row_2.his_id = row_1.data_id;
-            row_2.his_log = log;
+            row_2.his_protocal = log;
 
         } else if (row_1.table_name === "rsis") {
             row_2.in_rsis = 1;
             row_2.rsis_id = row_1.data_id;
-            row_2.rsis_log = log;
+            row_2.rsis_protocal = log;
         }
     }
 
@@ -789,6 +957,7 @@ class ProcessIntegrateHISController {
                     throw new Error(`${row} is NaN`);
                 }
 
+
                 const rowToInsert = {
                     data_id: row.data_id,
                     name: row.name,
@@ -820,6 +989,217 @@ class ProcessIntegrateHISController {
         } catch (exception) {
             console.error(prepareMergesData, exception);
         }
+    }
+
+
+    async updateIsDeadData() {
+        try {
+            await dbServer.query(`UPDATE integrate_final_his   SET is_death = 1  WHERE his_isdeath = '1' `);
+
+            console.log("Update IS Death Data successfully.");
+
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+    async updateHISDataToFinalTable() {
+
+        await dbServer.query("SET SESSION sql_mode='NO_ZERO_DATE'");
+
+
+        try {
+            const query = this.getUpdateQuery();
+            const result = await dbServer.query(query);
+
+        } catch (error) {
+            console.error('Error', error);
+        }finally {
+            await dbServer.query("SET SESSION sql_mode=''");
+        }
+    }
+    async updateHelmetRiskData() {
+        try {
+            await dbServer.query(`UPDATE integrate_final_his SET helmet_risk = NULL   WHERE vehicle_1 != 'รถจักรยานยนต์'`);
+
+            //HIS
+            await dbServer.query(`UPDATE integrate_final_his SET helmet_risk = 'สวม'         WHERE his_helmet = '1' AND helmet_risk is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET helmet_risk = 'ไม่สวม'       WHERE his_helmet = '2' AND helmet_risk is null;`);
+
+            console.log("Update Helmet Data successfully.");
+
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
+
+
+    async updateBeltRiskData() {
+        try {
+            await dbServer.query(`UPDATE integrate_final_his SET belt_risk = NULL WHERE (vehicle_1 = 'รถจักรยานยนต์' OR vehicle_1 = 'คนเดินเท้า')`);
+            //HIS
+            await dbServer.query(`UPDATE integrate_final_his SET belt_risk = 'คาด' WHERE his_belt = '1' AND belt_risk is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET belt_risk = 'ไม่คาด' WHERE his_belt = '2' AND belt_risk is null;`);
+
+            console.log("Update Belt Data successfully.");
+
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateAlcoholRiskData() {
+        try {
+            //HIS
+            await dbServer.query(`UPDATE integrate_final_his SET alcohol = 'ดื่ม' WHERE his_alcohol = '1' and alcohol is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET alcohol = 'ไม่ดื่ม' WHERE his_alcohol = '2' and alcohol is null ;`);
+            await dbServer.query(`UPDATE integrate_final_his SET alcohol = 'ไม่ทราบ' WHERE (alcohol IS NULL OR alcohol = 'N' OR alcohol = '9');`);
+
+            console.log("Update Alcohol Data successfully.");
+
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateVehicleData() {
+
+        const walkTxt = "เดินเท้า";
+        const bycicleTxt = "จักรยาน";
+        const motorcycleTxt = "รถจักรยานยนต์";
+        const tricycleTxt = "สามล้อ";
+        const carTxt = "รถยนต์"; // ปิกอั๊พ รถแท็กซี่
+        const vanTxt = "รถตู้"; // รถตู้ทั่วไป รถตู้โดยสารประจำทาง รถตู้สาธารณะอื่นๆ
+        const truckTxt = "รถกระบะ"; // รถตู้ทั่วไป รถตู้โดยสารประจำทาง รถตู้สาธารณะอื่นๆ
+        const bigTruckTxt = "รถบรรทุก"; //รถพ่วง รถบรรทุกหนัก
+        const veryBigTruckTxt = "รถพ่วง"; //รถพ่วง รถบรรทุกหนัก
+        const busTxt = "รถบัส"; //โดยสาร
+        const omniBusTxt = "รถโดยสาร"; //โดยสาร
+        const schoolBusTxt = "รถรับส่งนักเรียน"; // รถรับส่งนักเรียน
+
+        const walk = "เดินเท้า";
+        const bycicle = "จักรยาน";
+        const motorcycle = "รถจักรยานยนต์";
+        const tricycle = "ยานยนต์สามล้อ";
+        const car = "รถยนต์";
+        const truck = "รถบรรทุกเล็กหรือรถตู้";
+        const bigTruck = "รถบรรทุกหนัก";
+        const bus = "รถโดยสาร";
+
+
+        try {
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = null WHERE LEFT(his_diagcode, 2) = 'V0' AND vehicle_1 is not null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bycicle}' WHERE LEFT(his_diagcode, 2) = 'V1' AND vehicle_1 is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${motorcycle}' WHERE LEFT(his_diagcode, 2) = 'V2' AND vehicle_1 is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${tricycle}' WHERE LEFT(his_diagcode, 2) = 'V3' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${car}' WHERE LEFT(his_diagcode, 2) = 'V4' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${truck}' WHERE LEFT(his_diagcode, 2) = 'V5' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bigTruck}' WHERE LEFT(his_diagcode, 2) = 'V6' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bus}' WHERE LEFT(his_diagcode, 2) = 'V7' AND vehicle_1 is null`);
+
+        } catch (error) {
+            console.error('Error', error);
+        }
+
+        console.log("Update Vehicle Data successfully.");
+    }
+
+    async updateRoadUserData() {
+        try {
+            // Update for HIS
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้ขับขี่' WHERE (his_traffic = '1' ) AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้โดยสาร' WHERE (his_traffic = '2' ) AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'คนเดินเท้า' WHERE (his_traffic = '3' ) AND roaduser is null;`);
+
+            // Update for Non V1- V2
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้ขับขี่' WHERE (MID(his_diagcode, 4, 1) = '0' OR MID(his_diagcode, 4, 1) = '5')  AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้โดยสาร' WHERE (MID(his_diagcode, 4, 1) = '1' OR MID(his_diagcode, 4, 1) = '6')   AND roaduser is null;`);
+
+            // Update for V1- V2
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้ขับขี่' WHERE (LEFT(his_diagcode, 2) = 'V1' OR LEFT(his_diagcode, 2) = 'V2') AND (MID(his_diagcode, 4, 1) = '0' OR MID(his_diagcode, 4, 1) = '4')  AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'ผู้โดยสาร' WHERE (LEFT(his_diagcode, 2) = 'V1' OR LEFT(his_diagcode, 2) = 'V2') AND (MID(his_diagcode, 4, 1) = '1' or MID(his_diagcode, 4, 1) = '5')  AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_his SET roaduser = 'คนเดินเท้า' WHERE (LEFT(his_diagcode, 2) = 'V0')  AND roaduser is null;`);
+
+        }
+        catch (error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateInjuryDateData() {
+        try {
+            // Update injury_date from his_date_serv
+            await dbServer.query("UPDATE integrate_final_his SET injury_date = his_date_serv WHERE injury_date IS NULL AND his_date_serv IS NOT NULL;");
+            await dbServer.query("UPDATE integrate_final_his SET hdate = his_date_serv WHERE hdate IS NULL AND his_date_serv IS NOT NULL;");
+
+            console.log("Update Injury Data successfully.");
+        } catch(error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateIsAdmitData() {
+        try {
+            await dbServer.query("UPDATE integrate_final_his SET admit = 1 WHERE his_ipd_code IS NOT NULL;");
+
+            console.log("Update Is Admit successfully.");
+        } catch(error) {
+            console.error('Error', error);
+        }
+    }
+
+    getUpdateQuery() {
+        return `
+            UPDATE integrate_final_his AS final
+                LEFT JOIN temp_his_query_clean AS h ON h.id = final.his_id
+                SET
+                    final.his_pid = h.pid,
+                    final.his_hospcode = h.hospcode,
+                    final.his_date_serv = h.date_serv,
+                    final.his_seq = h.seq,
+                    final.his_an = h.an,
+                    final.his_diagcode = h.diagcode,
+                    final.his_isdeath = h.isdeath,
+                    final.his_cdeath = h.cdeath,
+                    final.his_price = h.price,
+                    final.his_payprice = h.payprice,
+                    final.his_actualpay = h.actualpay,
+                    final.his_dateinhosp = h.dateinhosp,
+                    final.his_cid = h.cid,
+                    final.his_name = h.name,
+                    final.his_lname = h.lname,
+                    final.his_sex = h.sex,
+                    final.his_nation = h.nation,
+                    final.his_birth = h.birth,
+                    final.his_opd_code = h.opd_code,
+                    final.his_ipd_code = h.ipd_code,
+                    final.his_allcode = h.allcode,
+                    final.his_s0 = h.s0,
+                    final.his_s1 = h.s1,
+                    final.his_s2 = h.s2,
+                    final.his_s3 = h.s3,
+                    final.his_s4 = h.s4,
+                    final.his_s5 = h.s5,
+                    final.his_s6 = h.s6,
+                    final.his_s7 = h.s7,
+                    final.his_s8 = h.s8,
+                    final.his_s9 = h.s9,
+                    final.his_aeplace = h.aeplace,
+                    final.his_aetype = h.aetype,
+                    final.his_airway = h.airway,
+                    final.his_alcohol = h.alcohol,
+                    final.his_splint = h.splint,
+                    final.his_belt = h.belt,
+                    final.his_helmet = h.helmet,
+                    final.his_coma_eye = h.coma_eye,
+                    final.his_coma_movement = h.coma_movement,
+                    final.his_coma_speak = h.coma_speak,
+                    final.his_nacrotic_drug = h.nacrotic_drug,
+                    final.his_stopbleed = h.stopbleed,
+                    final.his_traffic = h.traffic,
+                    final.his_typein_ae = h.typein_ae,
+                    final.his_urgency = h.urgency,
+                    final.his_vehicle = h.vehicle;`
     }
 
 

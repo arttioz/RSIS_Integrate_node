@@ -29,8 +29,6 @@ ProjectIntegrateFinalHIS.init(
         vehicle_2: DataTypes.STRING(100),
         police_event_id: DataTypes.STRING(255),
         hospcode: DataTypes.STRING(10),
-        eclaim_id: DataTypes.BIGINT(20),
-        eclaim_protocal: DataTypes.STRING(255),
         his_id: DataTypes.BIGINT(20),
         his_protocal: DataTypes.STRING(255),
         rsis_id: DataTypes.BIGINT(20),
@@ -42,7 +40,7 @@ ProjectIntegrateFinalHIS.init(
         acc_province_id: DataTypes.INTEGER(11),
         url_video: DataTypes.STRING(255),
         project_id: DataTypes.INTEGER(11),
-        admin: DataTypes.INTEGER(1)
+        admit: DataTypes.INTEGER(1)
     },
     {
         sequelize:dbServer,

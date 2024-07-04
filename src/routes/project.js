@@ -20,8 +20,6 @@ router.get('/start/autoProject/ereport', projectController.autoCompareWithErepor
 
 router.get('/start/autoProject/map', projectController.autoRiskMapCustomDate);
 
-
-
 router.get('/test/connection', projectController.testDatabaseConnection);
 
 

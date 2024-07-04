@@ -1106,7 +1106,6 @@ class ProcessIntegrateController {
 
         /* Remove first vowel */
         let begin_wrong = ['ิ', 'ฺ.', '์', 'ื', '่', '๋', '้', '็', 'ั', 'ี', '๊', 'ุ', 'ู', 'ํ','.'];
-
         // If the first character of name is a vowel
         while (begin_wrong.includes(row.name.charAt(0))) {
             row.name = row.name.slice(1);
@@ -1744,8 +1743,6 @@ class ProcessIntegrateController {
         } catch (error) {
             console.error('Error', error);
         }
-
-
     }
     async updateBeltRiskData() {
         try {

@@ -1,6 +1,6 @@
 
 const {log} = require("debug");
-const moment = require('moment');
+const moment = require('moment-timezone');
 
 // Import all models
 const EclaimApi = require('../models/raw/EclaimApi');
@@ -506,18 +506,15 @@ class ProjectIntegrateController {
 
 
         await HisMergeData.destroy({ truncate : true, cascade: false });
-
+        console.log(startDate,endDate,provinceCode)
         try{
-            // Convert startDate and endDate to Date objects
-            const startDateObj = moment(startDate).startOf('day').toDate();
-            const endDateObj = moment(endDate).endOf('day').toDate();
 
             // Fetch records that meet the date requirements
             let rawRecords = await HISApi.findAll({
                 where: {
                     DATE_SERV: {
-                        [Op.gte]: startDateObj,
-                        [Op.lte]: endDateObj
+                        [Op.gte]: startDate,
+                        [Op.lte]: endDate
                     },
                     province_id: provinceCode
                 }
@@ -533,6 +530,7 @@ class ProjectIntegrateController {
                     let oldColumn = columnMapping[newColumn];
                     newRecordData[newColumn] = oldRecord[oldColumn];
                 }
+
 
                 // Populate additional fields for temp_ereport_clean
                 newRecordData['match'] = ''; // Default or logic to populate
@@ -554,10 +552,6 @@ class ProjectIntegrateController {
         }catch (e) {
             console.log(e);
         }
-
-
-
-
     }
 
     static setDate0(date,limitDate){
@@ -721,8 +715,10 @@ module.exports = {
             console.error(error);
         }
 
-        const startDate = moment(startDateInput);
-        const endDateLimit = moment(endDateInput);
+        const startDate =  moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
+        const endDateLimit =  moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
+
+        console.log(startDate, endDateLimit)
 
 
         let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
@@ -736,7 +732,6 @@ module.exports = {
             let preDate = run_startDate.clone().subtract(preRangDate,'days');
             let endDate = run_startDate.clone().add(rangeDate,'days');
             let subDate = endDate.clone().add(subRangeDate,'days');
-
 
             if (provinces.hasOwnProperty(province_code)){
 
