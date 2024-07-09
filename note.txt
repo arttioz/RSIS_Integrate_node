@@ -10,3 +10,13 @@ test
 docker exec -it 80e25199946c sh -c "echo '172.17.0.1 host.docker.internal' >> /etc/hosts"
 
 
+
+docker build -t rsis_his_nodejs .
+
+docker save -o rsis_his_nodejs.tar rsis_his_nodejs
+docker save rsis_his_nodejs > rsis_his_nodejs.tar
+
+test
+ tar tf rsis_his_nodejs.tar
+
+

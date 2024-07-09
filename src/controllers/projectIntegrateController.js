@@ -504,7 +504,7 @@ class ProjectIntegrateController {
             province_code: 'province_id'
         };
 
-
+        await dbServer.query(`TRUNCATE TABLE temp_his_query_clean;`);
         await HisMergeData.destroy({ truncate : true, cascade: false });
         console.log(startDate,endDate,provinceCode)
         try{
@@ -709,7 +709,7 @@ module.exports = {
              checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
             if (!checkStart || !checkEnd){
-                res.json({"code":400, "message":"Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+                res.json({"code":400, "message":"autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
             }
         }catch (error) {
             console.error(error);
@@ -733,11 +733,18 @@ module.exports = {
             let endDate = run_startDate.clone().add(rangeDate,'days');
             let subDate = endDate.clone().add(subRangeDate,'days');
 
+            if (endDate.isAfter(endDateLimit)) {
+                endDate = endDateLimit.clone();
+            }
+
+
             if (provinces.hasOwnProperty(province_code)){
 
                 const startTime = new Date(); // Start timing
-                await ProjectIntegrateController.importHISData(startDate,endDate,province_code)
-                let processController = new ProcessIntegrateHISController(startDate,endDate,province_code);
+                console.log(startDate,endDate,province_code)
+
+                await ProjectIntegrateController.importHISData(run_startDate,endDate,province_code)
+                let processController = new ProcessIntegrateHISController(run_startDate,endDate,province_code);
                 await processController.mergeRSIS()
 
                 const endTime = new Date(); // End timing

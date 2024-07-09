@@ -2,3 +2,7 @@ docker build -t api_call:api .
 docker save -o api_caller_image.tar api_call
 
 docker run -it --name rsis_api --cpus=8 --memory=8192m --volume /home/www/data/api:/data/api --add-host=host.docker.internal:host-gateway --restart=always  -e TZ=Asia/Bangkok -p 3000:3000  api_call:api
+
+
+
+docker build -t his_integrate_rsis:api .

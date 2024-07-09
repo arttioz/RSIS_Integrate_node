@@ -43,9 +43,13 @@ class ProcessIntegrateHISController {
     async mergeRSIS() {
 
         try {
-            await PrepareMergeHIS.destroy({truncate: true});
-            await ProjectIntegrateFinalHIS.destroy({truncate: true});
-            await IntegrateFinalHIS.destroy({truncate: true});
+            await PrepareMergeHIS.destroy({truncate: true, cascade: false});
+            await ProjectIntegrateFinalHIS.destroy({truncate: true, cascade: false});
+            await IntegrateFinalHIS.destroy({truncate: true, cascade: false});
+
+            await dbServer.query(`TRUNCATE TABLE integrate_final_his;`);
+            await dbServer.query(`TRUNCATE TABLE project_prepare_merge_his;`);
+            await dbServer.query(`TRUNCATE TABLE project_integrate_final_his;`);
 
             let  result = await LibChangwat.findOne({where: {code: this.provinceCode}});
             this.aprovince = result.name;

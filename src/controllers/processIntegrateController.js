@@ -1472,8 +1472,6 @@ class ProcessIntegrateController {
                         OR
                     (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
                         OR
-                    is_pmi = 1
-                        OR
                     eclaim_injury_status like '%ปานกลาง%'
                         OR
                     eclaim_injury_status like '%สาหัส%'
