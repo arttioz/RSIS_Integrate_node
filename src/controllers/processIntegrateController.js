@@ -321,6 +321,11 @@ class ProcessIntegrateController {
             aDateSameMatch = true;
         }
 
+        if( row_1.is_death === 1 || row_2.is_death === 1 ){
+            aDateSameMatch = true;
+            aDateMatch = true;
+        }
+
         var matchTxt = row_1.data_id + " (" + row_1.table_name + ") = " + row_2.data_id + " (" + row_2.table_name + "):";
 
         if (IDMatch && nameMatch && aDateMatch && vehicleMatch) {
@@ -377,6 +382,16 @@ class ProcessIntegrateController {
 
         if (row.dead == 1 || row.acc13 == 2 || row.acc13 == 3 || row.acc13 == 4 ||
             row.acc13 == 5 || row.acc13 == 6 || row.acc13 == 7 || row.acc13 == 10) {
+            row.is_death = 1;
+        }
+
+        if (row.staer === 1 || row.staer  === 6){
+            row.is_death = 1;
+        }else  if (row.staward === 5 ){
+            row.is_death = 1;
+        }else  if (row.refer_result === 4 || row.refer_result  === 5){
+            row.is_death = 1;
+        }else  if (row.pmi === 1){
             row.is_death = 1;
         }
 
@@ -447,6 +462,14 @@ class ProcessIntegrateController {
         if (this.vehicleTxt.hasOwnProperty(row.vehicle_type)) {
             row.vehicle_1 = this.vehicleTxt[row.vehicle_type];
         }
+        if (row.injury_status.includes('เสียชีวิต')) {
+           row.is_death = 1
+        }
+
+        // eclaim_injury_status like '%เสียชีวิต%'
+        // OR
+        // police_vehicle_injury like '%เสียชีวิต%'
+
 
         // row.atumbol = row.atumbol;
         // row.aaumpor = row.aaumpor;
@@ -510,6 +533,14 @@ class ProcessIntegrateController {
         if (this.vehicleTxt.hasOwnProperty(row.vehicle_type)) {
             row.vehicle_1 = this.vehicleTxt[row.vehicle_type];
         }
+
+        if (row.injury.includes('เสียชีวิต')) {
+            row.is_death = 1
+        }
+
+        // eclaim_vehicle_injury like '%เสียชีวิต%'
+        // OR
+        // police_vehicle_injury like '%เสียชีวิต%'
 
         return row;
     }
@@ -1075,27 +1106,31 @@ class ProcessIntegrateController {
 
     async  separateName(name) {
 
+        try{
+            const prename = ['เด็กชาย','พล.ร.ท.','พล.ร.อ.','พล.ร.ต.','พล.อ.อ.','พล.อ.ต.','พล.อ.ท.','พล.ต.อ.','พล.ต.ต.','พล.ต.ท.','นางสาว','จ.ส.ท.','จ.ส.อ.','จ.ส.ต.','พ.จ.อ.','พ.จ.ต.','พ.จ.ท.','พ.อ.ท.','พ.อ.อ.','พ.อ.ต.','พ.ต.ท.','ร.ต.อ.','ร.ต.ต.','จ.ส.ต.','ส.ต.ท.','พ.ต.อ.','พ.ต.ต.','ร.ต.ท.','ส.ต.อ.','ส.ต.ต.','ม.ร.ว.','พล.อ.','พล.ต.','พล.ท.','น.ส.','ด.ญ.','หญิง','ด.ช.','พ.ท.','ร.อ.','ร.ต.','ส.อ.','ส.ต.','พ.อ.','พ.ต.','ร.ท.','ส.ท.','จ.ท.','จ.อ.','จ.ต.','น.ท.','ร.อ.','ร.ต.','จ.อ.','จ.ต.','น.อ.','น.ต.','ร.ท.','จ.ท.','ม.ล.','ด.ต.','แม่','Mrs','นส.','ดญ.','นาย','ดช.','พระ','นาง','พลฯ','Mr','Ms'];
 
-        const prename = ['เด็กชาย','พล.ร.ท.','พล.ร.อ.','พล.ร.ต.','พล.อ.อ.','พล.อ.ต.','พล.อ.ท.','พล.ต.อ.','พล.ต.ต.','พล.ต.ท.','นางสาว','จ.ส.ท.','จ.ส.อ.','จ.ส.ต.','พ.จ.อ.','พ.จ.ต.','พ.จ.ท.','พ.อ.ท.','พ.อ.อ.','พ.อ.ต.','พ.ต.ท.','ร.ต.อ.','ร.ต.ต.','จ.ส.ต.','ส.ต.ท.','พ.ต.อ.','พ.ต.ต.','ร.ต.ท.','ส.ต.อ.','ส.ต.ต.','ม.ร.ว.','พล.อ.','พล.ต.','พล.ท.','น.ส.','ด.ญ.','หญิง','ด.ช.','พ.ท.','ร.อ.','ร.ต.','ส.อ.','ส.ต.','พ.อ.','พ.ต.','ร.ท.','ส.ท.','จ.ท.','จ.อ.','จ.ต.','น.ท.','ร.อ.','ร.ต.','จ.อ.','จ.ต.','น.อ.','น.ต.','ร.ท.','จ.ท.','ม.ล.','ด.ต.','แม่','Mrs','นส.','ดญ.','นาย','ดช.','พระ','นาง','พลฯ','Mr','Ms'];
-
-        for (const pre of prename) {
-            if (name.includes(pre)) { // Check if the name contains the prefix
-                name = name.replace(new RegExp(pre), ''); // Replace the first occurrence
-                break; // Exit the loop after the first replacement
+            for (const pre of prename) {
+                if (name.includes(pre)) { // Check if the name contains the prefix
+                    name = name.replace(new RegExp(pre), ''); // Replace the first occurrence
+                    break; // Exit the loop after the first replacement
+                }
             }
+
+            // Trim spaces before and after the string
+            name =  name.trim();
+
+            // Replace multiple spaces with a single space
+            name =  name.replace(/\s+/g, ' ');
+
+            // Split the name into an array of names
+            let splitName =  name.split(' ');
+
+
+            return splitName;
+        }catch (exception) {
+           return []
         }
 
-        // Trim spaces before and after the string
-        name =  name.trim();
-
-        // Replace multiple spaces with a single space
-        name =  name.replace(/\s+/g, ' ');
-
-        // Split the name into an array of names
-        let splitName =  name.split(' ');
-
-
-        return splitName;
     }
 
     async cleanNameData(row) {
@@ -1540,11 +1575,10 @@ class ProcessIntegrateController {
         try {
             const query = `
             UPDATE integrate_final
-            SET aaumpor = REPLACE(aaumpor, 'อำเภอ', '')
-            WHERE project_id = :projectId;
+            SET aaumpor = TRIM(REPLACE(aaumpor, 'อำเภอ', '')
         `;
 
-            await this.executeUpdate(query, { projectId: this.project_id });
+            await this.executeUpdate(query, this.project_id);
 
             console.log("Update is aaumpor successfully.");
         } catch (error) {

@@ -1,0 +1,15 @@
+
+Province HIS Integrate
+curl "http://172.17.0.4:3000/api/project/start/autoProject/his?startDate=2023-01-01&endDate=2023-10-31&provinceCode=55"
+
+
+Ereport_merge
+BASE_URL="172.17.0.3:3000/api/project/start/autoProject/ereport"
+curl "$BASE_URL"
+
+
+Test Province
+curl "172.17.0.2:3000/api/project/start/autoproject/province/custom?startDate=2023-01-01&endDate=2023-01-02&provinceCode=10"
+
+
+curl "172.17.0.3:3000"

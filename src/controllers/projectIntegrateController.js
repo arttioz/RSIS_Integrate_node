@@ -124,7 +124,7 @@ class ProjectIntegrateController {
         let rawRecords = await ISRawData.findAll({
             where: {
                 adate: {
-                    [Op.gte]: startDate,  // >= startDate
+                    [Op.gte]: moment(startDate).startOf('day').toDate() ,  // >= startDate
                     [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 },
                 aplace: project.province_code
@@ -649,48 +649,55 @@ module.exports = {
 
 
     autoProjectCustomProvince: async function (req, res) {
+        try {
+            let startDateInput = req.query.startDate;
+            let endDateInput = req.query.endDate;
+            let province_code = req.query.provinceCode;
+            let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+            let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
-        let startDateInput = req.query.startDate;
-        let endDateInput = req.query.endDate;
-        let province_code = req.query.provinceCode;
-        let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
-        let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
-
-        if (!checkStart || !checkEnd){
-            res.json({"code":400, "message":"Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
-        }
-
-        const startDate = moment(startDateInput);
-        const endDateLimit = moment(endDateInput);
-
-
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
-        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
-        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
-
-        let run_startDate = startDate.clone();
-
-        while (run_startDate.isBefore(endDateLimit)) {
-
-            let preDate = run_startDate.clone().subtract(preRangDate,'days');
-            let endDate = run_startDate.clone().add(rangeDate,'days');
-            let subDate = endDate.clone().add(subRangeDate,'days');
-
-
-            if (provinces.hasOwnProperty(province_code)){
-
-                const startTime = new Date(); // Start timing
-                await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
-
-                const endTime = new Date(); // End timing
-                const totalTime = endTime - startTime; // Calculate total time in milliseconds
-                console.log(`Total time: ${totalTime} ms`);
+            if (!checkStart || !checkEnd) {
+                res.json({
+                    "code": 400,
+                    "message": "Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput
+                })
             }
 
-            run_startDate = run_startDate.add(rangeDate + 1, 'days');
-        }
+            const startDate = moment(startDateInput);
+            const endDateLimit = moment(endDateInput);
 
-        res.json({"code":200, "message":"Job success"})
+
+            let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
+            let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+            let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+            let run_startDate = startDate.clone();
+
+            while (run_startDate.isBefore(endDateLimit)) {
+
+                let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+                let endDate = run_startDate.clone().add(rangeDate, 'days');
+                let subDate = endDate.clone().add(subRangeDate, 'days');
+
+
+                if (provinces.hasOwnProperty(province_code)) {
+
+                    const startTime = new Date(); // Start timing
+                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate, province_code);
+
+                    const endTime = new Date(); // End timing
+                    const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                    console.log(`Total time: ${totalTime} ms`);
+                }
+
+                run_startDate = run_startDate.add(rangeDate + 1, 'days');
+            }
+
+            res.json({"code": 200, "message": "Job success"})
+        } catch (error) {
+            console.error('An error occurred:', error);
+            return res.status(500).json({ "code": 500, "message": "Internal server error", "error":error.message });
+        }
     },
 
 
@@ -703,10 +710,10 @@ module.exports = {
 
         try{
             startDateInput  = req.query.startdate || req.query.startDate;
-             endDateInput = req.query.enddate || req.query.endDate;
-             province_code = req.query.provinceCode;
-             checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
-             checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+            endDateInput = req.query.enddate || req.query.endDate;
+            province_code = req.query.provinceCode;
+            checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+            checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
             if (!checkStart || !checkEnd){
                 res.json({"code":400, "message":"autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
@@ -755,7 +762,7 @@ module.exports = {
             run_startDate = run_startDate.add(rangeDate + 1, 'days');
         }
 
-        res.    json({"code":200, "message":"Job success"})
+        res.json({"code":200, "message":"Job success"})
     },
 
     autoCompareWithEreportCustomDate: async function (req, res) {

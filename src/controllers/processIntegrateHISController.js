@@ -63,7 +63,6 @@ class ProcessIntegrateHISController {
         } catch (error) {
             console.error(error);
         }
-
     }
 
     async prepareData(){
