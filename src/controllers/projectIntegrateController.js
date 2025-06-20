@@ -139,6 +139,7 @@ class ProjectIntegrateController {
         for (let oldRecord of rawRecords) {
             let recordPlain = oldRecord.get({ plain: true });
             let ddate = this.setDate0(recordPlain.date, minnDate);
+            let dlt = this.setDate0(recordPlain.dlt, minnDate);
             let diser = this.setDate0(recordPlain.diser, minnDate);
             let timer = this.setDate0(recordPlain.timer, minnDate);
             let birth = this.setDate0(recordPlain.birth, minnDate);
@@ -155,6 +156,7 @@ class ProjectIntegrateController {
                 ref: oldRecord.ref,
                 project_id: project.id,
                 ddate: ddate,
+                dlt:dlt,
                 diser: diser,
                 timer: timer,
                 birth: birth,
@@ -702,6 +704,72 @@ module.exports = {
 
 
     autoProjectHISProvince: async function (req, res) {
+        let startDateInput = "";
+        let endDateInput = "";
+        let province_code= "";
+        let checkStart = ""
+        let checkEnd = "";
+
+        try{
+            startDateInput  = req.query.startdate || req.query.startDate;
+            endDateInput = req.query.enddate || req.query.endDate;
+            province_code = req.query.provinceCode;
+            checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+            checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+            if (!checkStart || !checkEnd){
+                res.json({"code":400, "message":"autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+            }
+        }catch (error) {
+            console.error(error);
+        }
+
+        const startDate =  moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
+        const endDateLimit =  moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
+
+        console.log(startDate, endDateLimit)
+
+
+        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        let run_startDate = startDate.clone();
+
+        while (run_startDate.isBefore(endDateLimit)) {
+
+            let preDate = run_startDate.clone().subtract(preRangDate,'days');
+            let endDate = run_startDate.clone().add(rangeDate,'days');
+            let subDate = endDate.clone().add(subRangeDate,'days');
+
+            if (endDate.isAfter(endDateLimit)) {
+                endDate = endDateLimit.clone();
+            }
+
+
+            if (provinces.hasOwnProperty(province_code)){
+
+                const startTime = new Date(); // Start timing
+                console.log(startDate,endDate,province_code)
+
+                await ProjectIntegrateController.importHISData(run_startDate,endDate,province_code)
+                let processController = new ProcessIntegrateHISController(run_startDate,endDate,province_code);
+                await processController.mergeRSIS()
+
+                const endTime = new Date(); // End timing
+                const totalTime = endTime - startTime; // Calculate total time in milliseconds
+                console.log(`Total time: ${totalTime} ms`);
+            }
+
+            run_startDate = run_startDate.add(rangeDate + 1, 'days');
+        }
+
+        res.json({"code":200, "message":"Job success"})
+    },
+
+
+
+    autoProjectCheckDupHIS: async function (req, res) {
         let startDateInput = "";
         let endDateInput = "";
         let province_code= "";

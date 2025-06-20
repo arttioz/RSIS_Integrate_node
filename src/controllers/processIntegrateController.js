@@ -370,10 +370,12 @@ class ProcessIntegrateController {
         row.lname = row.fname;
         row.cid = row.pid;
 
-        row = await this.cleanNameData(row);
-
         row.nameSave = row.name;
         row.lnameSave = row.fname;
+
+        row = await this.cleanNameData(row);
+
+
         // row.age = row.age;
         row.gender = row.sex;
         // row.nationality = row.nationality;
@@ -422,12 +424,13 @@ class ProcessIntegrateController {
 
         let difDate = moment(row.adate).diff(moment(this.dateFrom), 'days');
         row.difdatefrom2000 = difDate;
+        row.nameSave = row.name;
+        row.lnameSave = row.lname;
 
         row = await this.cleanNameData(row);
 
         row.data_id = row.id;
-        row.nameSave = row.name;
-        row.lnameSave = row.lname;
+
 
         // row.name = row.name;
         // row.lname = row.lname;
@@ -490,10 +493,12 @@ class ProcessIntegrateController {
         row.difdatefrom2000 = difDate;
 
         row.data_id = row.id;
-        row = await this.cleanNameData(row);
 
         row.nameSave = row.name;
         row.lnameSave = row.lname;
+
+        row = await this.cleanNameData(row);
+
 
         row.age = row.age;
 
@@ -515,11 +520,33 @@ class ProcessIntegrateController {
         row.helmet_risk = row.helmet;
         row.vehicle_plate_1 = row.vehicle_plate;
         row.vehicle_1 = row.vehicle;
-        row.accdate = row.adate;
+
+        let dateTimeString = `${row.adate}T${row.atime}`;
+        row.accdate = new Date(dateTimeString);
         // row.alcohol = row.alcohol;
         // row.roaduser = row.roaduser;
 
         let event = row.policeEvent;
+
+
+        const timeFormat = /^\d{2}:\d{2}:\d{2}$/;
+        if (!timeFormat.test(event.atime)) {
+            console.error('Invalid time format:', row.atime);
+            // Handle error, e.g., set a default time or throw an error
+            row.atime = '00:00:00'; // Setting default time if invalid
+        }
+
+        // Combine date and time into a datetime using moment
+        dateTimeString = `${moment(row.adate).format('YYYY-MM-DD')}T${event.atime}`;
+        const dateTimeMoment = moment(dateTimeString, 'YYYY-MM-DDTHH:mm:ss');
+
+        if (!dateTimeMoment.isValid()) {
+            console.error('Invalid datetime created from:', row.adate, row.atime);
+            // Handle invalid datetime, e.g., set a default date or throw
+        } else {
+            row.accdate = dateTimeMoment.toDate();
+        }
+        
         if(event){
             row.alat = event.alat;
             row.along = event.along;
@@ -869,6 +896,8 @@ class ProcessIntegrateController {
         await this.updateGPS()
         await this.updateDistrict()
 
+        await this.updateCID()
+        await this.updateAge()
 
         await this.mergeFinalDataToFinalTable();
     }
@@ -947,6 +976,7 @@ class ProcessIntegrateController {
         console.log(`Merge Data To IntegrateFinal for project: ${this.project_id} successfully.`);
     }
 
+
     async mergeFinalDataToFinalTable(){
         await this.deleteOldProjectData();
 
@@ -989,7 +1019,6 @@ class ProcessIntegrateController {
             where: {
                 injury_date: {
                     [Op.gte]: startDate, // Greater than or equal to startDate
-                    [Op.lt]: endDate    // Less than endDate
                 },
                 aprovince_code: province_code
             }
@@ -1573,18 +1602,116 @@ class ProcessIntegrateController {
 
     async updateDistrict() {
         try {
+            const queries = [
+                // 1. Trim 'อำเภอ'
+                `UPDATE integrate_final
+             SET aaumpor = TRIM(REPLACE(aaumpor, 'อำเภอ', ''));`,
+
+                // 2. Manual name corrections
+                `UPDATE integrate_final
+             SET aaumpor = 'กระแสสินธุ์'
+             WHERE aaumpor = 'กระแสสินธิ์';`,
+
+                `UPDATE integrate_final
+             SET aaumpor = 'ลานสกา'
+             WHERE aaumpor = 'ลานสะกา';`,
+
+                `UPDATE integrate_final
+             SET aaumpor = 'ว่านใหญ่'
+             WHERE aaumpor = 'หว้านใหญ่';`,
+
+                `UPDATE integrate_final
+             SET aaumpor = 'จตุรพักตรพิมาน'
+             WHERE aaumpor = 'จตุรพักตร์พิมาน';`,
+
+                `UPDATE integrate_final
+             SET aaumpor = 'หนองบุญนาก'
+             WHERE aaumpor = 'หนองบุญมาก';`,
+
+                // 3. Update aaumpor_code where name includes 'เมือง'
+                `UPDATE integrate_final i
+             JOIN lib_address_moi l 
+                 ON i.aprovince_code = l.ch_id 
+                 AND TRIM(i.aaumpor) = l.amphoe_t
+             SET 
+                 i.aaumpor_code = CONCAT(l.ch_id, '01'),
+                 i.aaumpor = l.amphoe_t
+             WHERE 
+                 i.aaumpor_code IS NULL
+                 AND TRIM(i.aaumpor) LIKE '%เมือง%';`,
+
+                // 4. General update for aaumpor_code
+                `UPDATE integrate_final i
+             JOIN lib_address_moi l 
+                 ON i.aprovince_code = l.ch_id 
+                 AND TRIM(i.aaumpor) = l.amphoe_t
+             SET 
+                 i.aaumpor_code = l.am_id,
+                 i.aaumpor = l.amphoe_t
+             WHERE 
+                 i.aaumpor_code IS NULL;`,
+
+                // 5. Update area_code
+                `UPDATE integrate_final i
+             JOIN lib_changwat l 
+                 ON i.aprovince_code = l.\`code\`
+             SET i.area_code = l.region
+             WHERE i.area_code IS NULL;`
+            ];
+
+            for (let i = 0; i < queries.length; i++) {
+                await this.executeUpdate(queries[i], this.project_id);
+                console.log(`Query ${i + 1} executed successfully.`);
+            }
+
+            console.log("All district updates completed.");
+        } catch (error) {
+            console.error('Error during district update:', error);
+        }
+    }
+
+
+    async updateCID() {
+        try {
             const query = `
             UPDATE integrate_final
-            SET aaumpor = TRIM(REPLACE(aaumpor, 'อำเภอ', '')
+            SET cid = REPLACE(cid, '00000000', 'NEWVALUE') -- Replace 'NEWVALUE' with the desired value
+            WHERE
+                cid LIKE '%00000000%'
+                AND is_pid NOT LIKE '%00000000%'
+                AND is_pid IS NOT NULL;
         `;
 
             await this.executeUpdate(query, this.project_id);
 
-            console.log("Update is aaumpor successfully.");
+            console.log("Update CID successfully.");
         } catch (error) {
-            console.error('Error', error);
+            console.error('Error updating CID:', error);
         }
     }
+
+
+    async updateAge() {
+        try {
+            const query = `
+            UPDATE integrate_final
+            SET 
+                dob = is_birth,
+                age = TIMESTAMPDIFF(YEAR, is_birth, injury_date)
+            WHERE 
+                is_birth IS NOT NULL
+                AND dob != is_birth;
+        `;
+
+            await this.executeUpdate(query, this.project_id);
+
+            console.log("Updated DOB and Age successfully.");
+        } catch (error) {
+            console.error("Error updating DOB and Age:", error);
+        }
+    }
+
+
 
 
 
@@ -2226,7 +2353,7 @@ class ProcessIntegrateController {
                     final.eclaim_ride_status=e.ride_status,
                     final.eclaim_cost=e.cost,
                     final.eclaim_updated_at=e.updated_at,
-                    final.eclaim_adatetime=e.adatetime,
+                    final.eclaim_adatetime=e.adate,
                     final.eclaim_created_at=e.created_at
             WHERE final.project_id = :projectId`;
     }

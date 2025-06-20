@@ -20,3 +20,15 @@ test
  tar tf rsis_his_nodejs.tar
 
 
+
+
+province_codes=(10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 67 70 71 72 73 74 75 76 77 80 81 82 83 84 85 86 90 91 92 93 94 95 96)
+
+
+# Loop through each province code
+for code in "${province_codes[@]}"; do
+  curl "http://172.17.0.4:3000/api/project/start/autoProject/his?startDate=2024-03-01&endDate=2024-05-01&provinceCode=$code"
+done
+
+
+curl "172.17.0.3:3000/api/project/start/autoproject/custom?startDate=2024-07-01&endDate=2024-11-30"

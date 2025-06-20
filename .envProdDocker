@@ -4,7 +4,7 @@ DB_RAW_DATABASE='read_file_api_v2'
 DB_DATABASE='rsis_api_99'
 
 DB_USER='root'
-DB_PASSWORD='ykeGS3RdE3hcwKNH'
+DB_PASSWORD='s2x8yWHaCZLk5SfP'
 
 PROVINCE=90
 PROVINCE_TH="สงขลา"

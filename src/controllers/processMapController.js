@@ -27,13 +27,27 @@ class ProcessMapController {
                 'is_death', 'admit', 'accdate', 'age'
             ],
             where: {
-                alat: { [Op.ne]: null },
-                along: { [Op.ne]: null },
+                alat: {
+                    [Op.and]: [
+                        { [Op.ne]: null },
+                        { [Op.ne]: 0 }
+                    ]
+                },
+                along: {
+                    [Op.and]: [
+                        { [Op.ne]: null },
+                        { [Op.ne]: 0 }
+                    ]
+                },
                 injury_date: {
-                    [Op.between]: [this.startDate, this.endDate.endOf('day').toDate()]
+                    [Op.between]: [
+                        this.startDate,
+                        this.endDate.endOf('day').toDate()
+                    ]
                 }
             }
         });
+
 
         // Grouping data manually by 'alat', 'along', and 'accdate'
         const groupedData = {};
@@ -65,7 +79,7 @@ class ProcessMapController {
 
     clusterData(data) {
         const kms_per_radian = 6371.0088;
-        const epsilon = (this.meters / 1000.0) / kms_per_radian; // 100 meters
+        const epsilon = (this.meters / 1000.0) / kms_per_radian; // 50 meters
         const coords = data.map(d => [this.toRadians(d.Acc_lat), this.toRadians(d.Acc_long)]);
 
 
@@ -102,6 +116,7 @@ class ProcessMapController {
 
         const data = await this.fetchData();
 
+        // แยก จังหวัด
         const groupedByProvince = data.reduce((acc, item) => {
             if (!acc[item.Aprovince]) acc[item.Aprovince] = [];
             acc[item.Aprovince].push(item);

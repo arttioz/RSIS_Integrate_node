@@ -9,6 +9,6 @@ data/moph/encrypted_file.csv
 
 data/
 
-.envProd_2
+.env
 
 rsis_nodejs.tar
