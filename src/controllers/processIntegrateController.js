@@ -1,5 +1,5 @@
 
-const {log} = require("debug");
+const { log } = require("debug");
 const moment = require('moment');
 
 // Import all models
@@ -13,8 +13,10 @@ const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const IntegrateFinal = require('../models/IntegrateFinal');
 const IntegrateFinalFull = require('../models/IntegrateFinalFull');
 
+
+
 const dbServer = require('../../config/connections/db_server');
-const {QueryTypes, Op} = require("sequelize");
+const { QueryTypes, Op } = require("sequelize");
 
 const provinces = require('../utils/provinces');
 
@@ -28,7 +30,7 @@ class ProcessIntegrateController {
     static STATUS_INTEGRATE_FAILED = "บูรณาการไม่สำเร็จ กรุณาตรวจสอบ Log";
     static STATUS_INTEGRATE_MERGE_SUCCESSED = "ข้อมูลบูรณาการได้รวมกับฐานหลักแล้ว";
 
-    constructor(project_id,project_code) {
+    constructor(project_id, project_code) {
         this.dateFrom = moment('2000-01-01 00:00:00', 'YYYY-MM-DD HH:mm:ss');
 
         const walkNum = 0;
@@ -62,9 +64,9 @@ class ProcessIntegrateController {
     async mergeRSIS() {
 
         try {
-            await PrepareMerge.destroy({truncate: true});
-            await ProjectIntegrateFinal.destroy({truncate: true});
-            await IntegrateFinal.destroy({truncate: true});
+            await PrepareMerge.destroy({ truncate: true });
+            await ProjectIntegrateFinal.destroy({ truncate: true });
+            await IntegrateFinal.destroy({ truncate: true });
 
             await this.prepareData();
             await this.mergeDataProcess();
@@ -78,14 +80,15 @@ class ProcessIntegrateController {
 
     }
 
-    async prepareData(){
+    async prepareData() {
         console.time('prepareMergeISData');
         try {
             const isRows = await this.prepareMergeISData();
             await this.checkDuplicateInSameTable(isRows, ISMergeData);
             this.is_rows = isRows.filter(row => !row.is_duplicate);
-            await this.savePrepareData( this.is_rows );
+            await this.savePrepareData(this.is_rows);
         } catch (error) {
+            console.error("prepareMergeISData ERROR");
             console.error(error);
         } finally {
             console.timeEnd('prepareMergeISData');
@@ -98,6 +101,7 @@ class ProcessIntegrateController {
             this.eclaim_rows = eclaimRows.filter(row => !row.is_duplicate);
             await this.savePrepareData(this.eclaim_rows);
         } catch (error) {
+            console.error("prepareMergeEclaimData ERROR");
             console.error(error);
         } finally {
             console.timeEnd('prepareMergeEclaimData');
@@ -110,6 +114,7 @@ class ProcessIntegrateController {
             this.police_rows = policeRows.filter(row => !row.is_duplicate);
             await this.savePrepareData(this.police_rows);
         } catch (error) {
+            console.error("prepareMergePoliceData ERROR");
             console.error(error);
         } finally {
             console.timeEnd('prepareMergePoliceData');
@@ -118,14 +123,14 @@ class ProcessIntegrateController {
 
     async prepareMergeISData() {
         try {
-            let rows = await ISMergeData.findAll({ where: { project_id: this.project_id }});
+            let rows = await ISMergeData.findAll({ where: { project_id: this.project_id } });
             console.log("IS row: " + rows.length);
 
             rows = await Promise.all(rows.map(row => this.setDefaultColumn(row)));
             rows = await Promise.all(rows.map(row => this.makeISColumnForMerge(row)));
 
             return rows;
-        } catch(error) {
+        } catch (error) {
             console.error(error);
         }
     }
@@ -136,7 +141,7 @@ class ProcessIntegrateController {
         try {
             await this.deleteEclaimDuplicateRecord();
 
-            let rows = await EclaimMergeData.findAll({ where: { project_id: this.project_id }});
+            let rows = await EclaimMergeData.findAll({ where: { project_id: this.project_id } });
             console.log(`Eclaim row: ${rows.length}`);
 
             // Assuming setDefaultColumn and makeEclaimColumnForMerge are async functions
@@ -144,14 +149,14 @@ class ProcessIntegrateController {
             rows = await Promise.all(rows.map(row => this.makeEclaimColumnForMerge(row)));
 
             return rows;
-        } catch(error) {
+        } catch (error) {
             console.error(error);
         }
     }
 
-     async deleteEclaimDuplicateRecord(){
+    async deleteEclaimDuplicateRecord() {
 
-         const deleteQuery = `
+        const deleteQuery = `
              DELETE t1
         FROM temp_eclaim_clean t1
         JOIN (
@@ -171,7 +176,7 @@ class ProcessIntegrateController {
 
         } catch (error) {
             console.error('Error', error);
-        }finally {
+        } finally {
             await dbServer.query("SET SESSION sql_mode=''");
         }
 
@@ -193,7 +198,7 @@ class ProcessIntegrateController {
             console.log(`Police row: ${rows.length}`);
 
             for (let row of rows) {
-                let nameArr =  await this.separateName(row.fullname) ;
+                let nameArr = await this.separateName(row.fullname);
                 if (nameArr.length > 0) {
                     row.name = nameArr[0];
                     if (nameArr.length >= 2) {
@@ -209,7 +214,7 @@ class ProcessIntegrateController {
         }
     }
 
-    async checkDuplicateInSameTable(rows,  Model) {
+    async checkDuplicateInSameTable(rows, Model) {
 
         // Check if the model has bulkWrite method
         if (typeof Model.update !== 'function') {
@@ -220,50 +225,69 @@ class ProcessIntegrateController {
         let mergeArray = {};
         let operations = [];
         let index = 1;
-        for(let row of rows) {
+        for (let row of rows) {
             mergeArray[index] = row;
             index++;
         }
 
         let size = rows.length;
+        const queuedRefs = new Set();
         for (let index = 1; index <= size; index++) {
             let row = mergeArray[index];
+            if (!row || row.is_duplicate) continue;              // ① skip already-dupes
+
             let nextIndex = index + 1;
 
             for (let search_i = nextIndex; search_i <= size; search_i++) {
                 let search_r = mergeArray[search_i];
+
+                // if already queued once, skip extra updates for the same ref
+                if (!search_r || search_r.is_duplicate) continue;
+                if (queuedRefs.has(search_r.data_id)) continue;
+
+
                 let check = await this.checkMatch(row, search_r);
 
                 if (check.result > 0) {
 
-                    search_r.match  = row.data_id;
-                    search_r.is_duplicate  = 1;
+                    if (!queuedRefs.has(search_r.data_id)) {
+                        queuedRefs.add(search_r.data_id);
 
-                    operations.push({
-                        match: row.data_id,
-                        is_duplicate: 1,
-                        ref: search_r.data_id,
-                        table:search_r.table_name
-                    })
+                        search_r.match = row.data_id;     // keep your flags
+                        search_r.is_duplicate = 1;
+
+                        operations.push({
+                            match: row.data_id,
+                            is_duplicate: 1,
+                            ref: search_r.data_id,
+                            table: search_r.table_name
+                        });
+                    }
                 }
             }
         }
 
-        console.log("Duplicate",operations.length);
+        console.log("Duplicate", operations.length);
+
         if (operations.length > 0) {
+            const BATCH = 500; // tune: 200–1000
 
-            const updatePromises = operations.map(operation =>
-                Model.update(
-                    { match: operation.match, is_duplicate: operation.is_duplicate },
-                    { where: operation.table === 'is' ? { ref: operation.ref } : { id: operation.ref } }
-                ).catch(error => console.error("Error in update operation: ", error))
-            );
+            for (let i = 0; i < operations.length; i += BATCH) {
+                const slice = operations.slice(i, i + BATCH);
 
-            try {
-                await Promise.all(updatePromises);
-            }
-            catch(error) {
-                console.error("Error in updating batch: ", error);
+                try {
+                    await Promise.all(
+                        slice.map(operation =>
+                            Model.update(
+                                { match: operation.match, is_duplicate: operation.is_duplicate },
+                                { where: operation.table === 'is' ? { ref: operation.ref } : { id: operation.ref } }
+                            )
+                        )
+                    );
+                } catch (error) {
+                    console.error("Error in updating batch: ", error);
+                    // optional: break; // stop on first failing batch
+                }
             }
         }
     }
@@ -282,7 +306,7 @@ class ProcessIntegrateController {
 
         if (row_1.is_cid_good == 1 && row_2.is_cid_good == 1) {
             if (row_1.is_confirm_thai) {
-                if ( (row_1.cid_num - row_2.cid_num) == 0) {
+                if ((row_1.cid_num - row_2.cid_num) == 0) {
                     IDMatch = true;
                 }
             } else {
@@ -321,7 +345,7 @@ class ProcessIntegrateController {
             aDateSameMatch = true;
         }
 
-        if( row_1.is_death === 1 || row_2.is_death === 1 ){
+        if (row_1.is_death === 1 || row_2.is_death === 1) {
             aDateSameMatch = true;
             aDateMatch = true;
         }
@@ -387,13 +411,13 @@ class ProcessIntegrateController {
             row.is_death = 1;
         }
 
-        if (row.staer === 1 || row.staer  === 6){
+        if (row.staer === 1 || row.staer === 6) {
             row.is_death = 1;
-        }else  if (row.staward === 5 ){
+        } else if (row.staward === 5) {
             row.is_death = 1;
-        }else  if (row.refer_result === 4 || row.refer_result  === 5){
+        } else if (row.refer_result === 4 || row.refer_result === 5) {
             row.is_death = 1;
-        }else  if (row.pmi === 1){
+        } else if (row.pmi === 1) {
             row.is_death = 1;
         }
 
@@ -465,8 +489,8 @@ class ProcessIntegrateController {
         if (this.vehicleTxt.hasOwnProperty(row.vehicle_type)) {
             row.vehicle_1 = this.vehicleTxt[row.vehicle_type];
         }
-        if (row.injury_status.includes('เสียชีวิต')) {
-           row.is_death = 1
+        if (row.injury_status && row.injury_status.includes('เสียชีวิต')) {
+            row.is_death = 1;
         }
 
         // eclaim_injury_status like '%เสียชีวิต%'
@@ -546,8 +570,8 @@ class ProcessIntegrateController {
         } else {
             row.accdate = dateTimeMoment.toDate();
         }
-        
-        if(event){
+
+        if (event) {
             row.alat = event.alat;
             row.along = event.along;
             row.atumbol = event.atumbol;
@@ -561,9 +585,7 @@ class ProcessIntegrateController {
             row.vehicle_1 = this.vehicleTxt[row.vehicle_type];
         }
 
-        if (row.injury.includes('เสียชีวิต')) {
-            row.is_death = 1
-        }
+        row.is_death = row.injuryinjury?.includes('เสียชีวิต') ? 1 : 0;
 
         // eclaim_vehicle_injury like '%เสียชีวิต%'
         // OR
@@ -573,8 +595,8 @@ class ProcessIntegrateController {
     }
 
     async mergeDataProcess() {
-            const prepareMerge = await PrepareMerge.findAll({
-                order: dbServer.literal(`
+        const prepareMerge = await PrepareMerge.findAll({
+            order: dbServer.literal(`
                 CASE
                 WHEN table_name = 'is' THEN 1
                 WHEN table_name = 'eclaim' THEN 2
@@ -582,7 +604,7 @@ class ProcessIntegrateController {
                 ELSE 4
                 END
                 `)
-            });
+        });
 
         const size = prepareMerge.length;
         console.log("Size: ", size);
@@ -613,7 +635,7 @@ class ProcessIntegrateController {
         let bulkData = [];
         let bulkLogData = [];
         // Start Match
-        for(let index = 1; index <= size; index++) {
+        for (let index = 1; index <= size; index++) {
 
             let row = mergeArray[index].row;
             let match = mergeArray[index].match; // Match array of Current Row
@@ -629,11 +651,11 @@ class ProcessIntegrateController {
                 if (next < eclaimBegin) next = eclaimBegin;
             } else if (table === "eclaim") {
                 if (next < policeBegin) next = policeBegin;
-            }else if (table === "police") {
+            } else if (table === "police") {
                 if (next < size) next = size;
             }
             let check_id_list = "";
-            for(let search_i = next; search_i <= size; search_i++){
+            for (let search_i = next; search_i <= size; search_i++) {
                 let search_r = mergeArray[search_i].row;
                 let search_m = mergeArray[search_i].match;
 
@@ -723,7 +745,7 @@ class ProcessIntegrateController {
 
         // Use bulkCreate to update bulkData first
         await PrepareMerge.bulkCreate(bulkData, {
-            updateOnDuplicate: ["in_is", "is_id", "is_log", "in_police", "police_id", "police_log", "in_eclaim", "eclaim_id", "eclaim_log" ,"match_id"]
+            updateOnDuplicate: ["in_is", "is_id", "is_log", "in_police", "police_id", "police_log", "in_eclaim", "eclaim_id", "eclaim_log", "match_id"]
         });
 
         // Then use bulkCreate to update finalBulkData
@@ -737,7 +759,7 @@ class ProcessIntegrateController {
 
     }
 
-    async  writeMergeDataProcess() {
+    async writeMergeDataProcess() {
         // Fetch and order the prepare_merge data
         const prepareMergeRows = await PrepareMerge.findAll({
             order: [
@@ -782,10 +804,10 @@ class ProcessIntegrateController {
                         matchedRowId.set(search_r.id, true);
                         matchedRowId.set(row.id, true);
 
-                        try{
+                        try {
                             matchRow[row.id].push(search_r);
-                        }catch (error){
-                            console.log("Skip ID",row.id,row.table_name,row.name,row.cid,row.accdate)
+                        } catch (error) {
+                            console.log("Skip ID", row.id, row.table_name, row.name, row.cid, row.accdate)
                         }
 
                     }
@@ -797,13 +819,13 @@ class ProcessIntegrateController {
         await this.writeFinalIntegrate(matchRow);
     }
 
-    async  writeFinalIntegrate(matchRow) {
+    async writeFinalIntegrate(matchRow) {
 
-        const isArr =  await this.rowsToArrayKey(this.is_rows);
+        const isArr = await this.rowsToArrayKey(this.is_rows);
         const policeArr = await this.rowsToArrayKey(this.police_rows);
         const eclaimArr = await this.rowsToArrayKey(this.eclaim_rows);
 
-        const size =  Object.keys(matchRow).length;;
+        const size = Object.keys(matchRow).length;;
         console.log(`writeFinalIntegrate Size: ${size}`);
         console.log(`Project ID: ${this.project_id}`);
 
@@ -835,30 +857,30 @@ class ProcessIntegrateController {
                         break;
                 }
 
-               this.assignValue(integrateRowData, dataRow, "name", "nameSave");
-               this.assignValue(integrateRowData, dataRow, "lname", "lnameSave");
-               this.assignValue(integrateRowData, dataRow, "cid");
-               this.assignValue(integrateRowData, dataRow, "gender");
-               this.assignValue(integrateRowData, dataRow, "nationality");
-               this.assignValue(integrateRowData, dataRow, "dob");
-               this.assignValue(integrateRowData, dataRow, "age");
-               this.assignValue(integrateRowData, dataRow, "hdate");
-               this.assignValue(integrateRowData, dataRow, "is_death");
-               this.assignValue(integrateRowData, dataRow, "occupation");
-               this.assignValue(integrateRowData, dataRow, "alcohol");
-               this.assignValue(integrateRowData, dataRow, "belt_risk");
-               this.assignValue(integrateRowData, dataRow, "helmet_risk");
-               this.assignValue(integrateRowData, dataRow, "roaduser");
-               this.assignValue(integrateRowData, dataRow, "vehicle_1");
-               this.assignValue(integrateRowData, dataRow, "vehicle_plate_1");
-               this.assignValue(integrateRowData, dataRow, "accdate");
-               this.assignValue(integrateRowData, dataRow, "atumbol");
-               this.assignValue(integrateRowData, dataRow, "aaumpor");
-               this.assignValue(integrateRowData, dataRow, "aprovince");
-               this.assignValue(integrateRowData, dataRow, "vehicle_2");
-               this.assignValue(integrateRowData, dataRow, "hospcode");
-               this.assignValue(integrateRowData, dataRow, "alat");
-               this.assignValue(integrateRowData, dataRow, "along");
+                this.assignValue(integrateRowData, dataRow, "name", "nameSave");
+                this.assignValue(integrateRowData, dataRow, "lname", "lnameSave");
+                this.assignValue(integrateRowData, dataRow, "cid");
+                this.assignValue(integrateRowData, dataRow, "gender");
+                this.assignValue(integrateRowData, dataRow, "nationality");
+                this.assignValue(integrateRowData, dataRow, "dob");
+                this.assignValue(integrateRowData, dataRow, "age");
+                this.assignValue(integrateRowData, dataRow, "hdate");
+                this.assignValue(integrateRowData, dataRow, "is_death");
+                this.assignValue(integrateRowData, dataRow, "occupation");
+                this.assignValue(integrateRowData, dataRow, "alcohol");
+                this.assignValue(integrateRowData, dataRow, "belt_risk");
+                this.assignValue(integrateRowData, dataRow, "helmet_risk");
+                this.assignValue(integrateRowData, dataRow, "roaduser");
+                this.assignValue(integrateRowData, dataRow, "vehicle_1");
+                this.assignValue(integrateRowData, dataRow, "vehicle_plate_1");
+                this.assignValue(integrateRowData, dataRow, "accdate");
+                this.assignValue(integrateRowData, dataRow, "atumbol");
+                this.assignValue(integrateRowData, dataRow, "aaumpor");
+                this.assignValue(integrateRowData, dataRow, "aprovince");
+                this.assignValue(integrateRowData, dataRow, "vehicle_2");
+                this.assignValue(integrateRowData, dataRow, "hospcode");
+                this.assignValue(integrateRowData, dataRow, "alat");
+                this.assignValue(integrateRowData, dataRow, "along");
 
             }
             bulkData.push(integrateRowData);
@@ -874,7 +896,7 @@ class ProcessIntegrateController {
         }
     }
 
-    async updateProjectIntegrateFinalData(){
+    async updateProjectIntegrateFinalData() {
         await this.updateProjectSummary();
 
         await this.mergeDataToIntegrateFinal();
@@ -893,9 +915,9 @@ class ProcessIntegrateController {
         await this.updateAlcoholRiskData()
         await this.updateIsAdmitData()
         await this.updateGender()
+        await this.updateVehicleType()
         await this.updateGPS()
         await this.updateDistrict()
-
         await this.updateCID()
         await this.updateAge()
 
@@ -903,7 +925,7 @@ class ProcessIntegrateController {
     }
 
 
-    async mergeDataToIntegrateFinal(){
+    async mergeDataToIntegrateFinal() {
 
         const project = await Project.findOne({
             where: { id: this.project_id }
@@ -977,7 +999,7 @@ class ProcessIntegrateController {
     }
 
 
-    async mergeFinalDataToFinalTable(){
+    async mergeFinalDataToFinalTable() {
         await this.deleteOldProjectData();
 
         try {
@@ -996,7 +1018,7 @@ class ProcessIntegrateController {
         }
     }
 
-    async deleteOldProjectData(){
+    async deleteOldProjectData() {
         await IntegrateFinalFull.destroy({
             where: {
                 project_id: this.project_id
@@ -1077,15 +1099,15 @@ class ProcessIntegrateController {
         if (row.table_name === "eclaim" || row.table_name === "police") {
             let code;
 
-            if (row.table_name === "eclaim"){
+            if (row.table_name === "eclaim") {
                 code = row.vehicle_type;
             }
-            else{
+            else {
                 code = row.vehicle;
             }
 
 
-            if (code === null || code.includes(walkTxt)) vehicle_type = walkNum;
+            if (code === null || code.includes(walkTxt) || code == "") vehicle_type = walkNum;
             else if (code.includes(motorcycleTxt)) vehicle_type = motorcycleNum;
             else if (code.includes(bicycleTxt)) vehicle_type = bicycleNum;
             else if (code.includes(tricycleTxt)) vehicle_type = tricycleNum;
@@ -1133,10 +1155,10 @@ class ProcessIntegrateController {
     }
 
 
-    async  separateName(name) {
+    async separateName(name) {
 
-        try{
-            const prename = ['เด็กชาย','พล.ร.ท.','พล.ร.อ.','พล.ร.ต.','พล.อ.อ.','พล.อ.ต.','พล.อ.ท.','พล.ต.อ.','พล.ต.ต.','พล.ต.ท.','นางสาว','จ.ส.ท.','จ.ส.อ.','จ.ส.ต.','พ.จ.อ.','พ.จ.ต.','พ.จ.ท.','พ.อ.ท.','พ.อ.อ.','พ.อ.ต.','พ.ต.ท.','ร.ต.อ.','ร.ต.ต.','จ.ส.ต.','ส.ต.ท.','พ.ต.อ.','พ.ต.ต.','ร.ต.ท.','ส.ต.อ.','ส.ต.ต.','ม.ร.ว.','พล.อ.','พล.ต.','พล.ท.','น.ส.','ด.ญ.','หญิง','ด.ช.','พ.ท.','ร.อ.','ร.ต.','ส.อ.','ส.ต.','พ.อ.','พ.ต.','ร.ท.','ส.ท.','จ.ท.','จ.อ.','จ.ต.','น.ท.','ร.อ.','ร.ต.','จ.อ.','จ.ต.','น.อ.','น.ต.','ร.ท.','จ.ท.','ม.ล.','ด.ต.','แม่','Mrs','นส.','ดญ.','นาย','ดช.','พระ','นาง','พลฯ','Mr','Ms'];
+        try {
+            const prename = ['เด็กชาย', 'พล.ร.ท.', 'พล.ร.อ.', 'พล.ร.ต.', 'พล.อ.อ.', 'พล.อ.ต.', 'พล.อ.ท.', 'พล.ต.อ.', 'พล.ต.ต.', 'พล.ต.ท.', 'นางสาว', 'จ.ส.ท.', 'จ.ส.อ.', 'จ.ส.ต.', 'พ.จ.อ.', 'พ.จ.ต.', 'พ.จ.ท.', 'พ.อ.ท.', 'พ.อ.อ.', 'พ.อ.ต.', 'พ.ต.ท.', 'ร.ต.อ.', 'ร.ต.ต.', 'จ.ส.ต.', 'ส.ต.ท.', 'พ.ต.อ.', 'พ.ต.ต.', 'ร.ต.ท.', 'ส.ต.อ.', 'ส.ต.ต.', 'ม.ร.ว.', 'พล.อ.', 'พล.ต.', 'พล.ท.', 'น.ส.', 'ด.ญ.', 'หญิง', 'ด.ช.', 'พ.ท.', 'ร.อ.', 'ร.ต.', 'ส.อ.', 'ส.ต.', 'พ.อ.', 'พ.ต.', 'ร.ท.', 'ส.ท.', 'จ.ท.', 'จ.อ.', 'จ.ต.', 'น.ท.', 'ร.อ.', 'ร.ต.', 'จ.อ.', 'จ.ต.', 'น.อ.', 'น.ต.', 'ร.ท.', 'จ.ท.', 'ม.ล.', 'ด.ต.', 'แม่', 'Mrs', 'นส.', 'ดญ.', 'นาย', 'ดช.', 'พระ', 'นาง', 'พลฯ', 'Mr', 'Ms'];
 
             for (const pre of prename) {
                 if (name.includes(pre)) { // Check if the name contains the prefix
@@ -1146,30 +1168,30 @@ class ProcessIntegrateController {
             }
 
             // Trim spaces before and after the string
-            name =  name.trim();
+            name = name.trim();
 
             // Replace multiple spaces with a single space
-            name =  name.replace(/\s+/g, ' ');
+            name = name.replace(/\s+/g, ' ');
 
             // Split the name into an array of names
-            let splitName =  name.split(' ');
+            let splitName = name.split(' ');
 
 
             return splitName;
-        }catch (exception) {
-           return []
+        } catch (exception) {
+            return []
         }
 
     }
 
     async cleanNameData(row) {
         // CID Fname Lname Remove Special word - Spacbar
-        row.cid = row.cid ? row.cid.replace(/[^a-zA-Z0-9-]/g, '').replace(/\s+/g, '')  : '';
-        row.name = row.name ? row.name.replace(/\s+/g, '')  : '';
+        row.cid = row.cid ? row.cid.replace(/[^a-zA-Z0-9-]/g, '').replace(/\s+/g, '') : '';
+        row.name = row.name ? row.name.replace(/\s+/g, '') : '';
         row.lname = row.lname ? row.lname.replace(/\s+/g, '') : '';
 
         /* Remove first vowel */
-        let begin_wrong = ['ิ', 'ฺ.', '์', 'ื', '่', '๋', '้', '็', 'ั', 'ี', '๊', 'ุ', 'ู', 'ํ','.'];
+        let begin_wrong = ['ิ', 'ฺ.', '์', 'ื', '่', '๋', '้', '็', 'ั', 'ี', '๊', 'ุ', 'ู', 'ํ', '.'];
         // If the first character of name is a vowel
         while (begin_wrong.includes(row.name.charAt(0))) {
             row.name = row.name.slice(1);
@@ -1201,7 +1223,7 @@ class ProcessIntegrateController {
             "ื": "ิ"
         };
 
-        for(let key in replacements) {
+        for (let key in replacements) {
             let re = new RegExp(key, "g");
             name = name.replace(re, replacements[key]);
         }
@@ -1281,7 +1303,7 @@ class ProcessIntegrateController {
                         is_error = 1;
                     }
                 }
-                if (is_error){
+                if (is_error) {
                     console.log(row['cid']);
                     console.log(row.cid);
                     console.log(row.name);
@@ -1341,7 +1363,7 @@ class ProcessIntegrateController {
 
         } catch (error) {
             console.error('Error', error);
-        }finally {
+        } finally {
             await dbServer.query("SET SESSION sql_mode=''");
         }
     }
@@ -1379,9 +1401,9 @@ class ProcessIntegrateController {
         `;
 
         try {
-            await dbServer.query(query1, {type: QueryTypes.DELETE});
-            await dbServer.query(query2, {type: QueryTypes.DELETE});
-        } catch(error) {
+            await dbServer.query(query1, { type: QueryTypes.DELETE });
+            await dbServer.query(query2, { type: QueryTypes.DELETE });
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1423,7 +1445,7 @@ class ProcessIntegrateController {
     }
 
 
-    async  updateATumbolData() {
+    async updateATumbolData() {
         try {
             const query = `
                   UPDATE integrate_final
@@ -1477,7 +1499,7 @@ class ProcessIntegrateController {
         }
     }
 
-    async updateAProvinceData(){
+    async updateAProvinceData() {
         const query = `
             UPDATE integrate_final
             LEFT JOIN lib_address_moi on
@@ -1517,7 +1539,7 @@ class ProcessIntegrateController {
             await this.executeUpdate("UPDATE integrate_final SET injury_date = his_date_serv WHERE injury_date IS NULL AND his_date_serv IS NOT NULL AND project_id = :projectId", this.project_id);
 
             console.log("Update Injury Data successfully.");
-        } catch(error) {
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1551,7 +1573,7 @@ class ProcessIntegrateController {
             await this.executeUpdate(query, this.project_id);
 
             console.log("Update Is Admit successfully.");
-        } catch(error) {
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1575,7 +1597,43 @@ class ProcessIntegrateController {
             await this.executeUpdate(query, this.project_id);
 
             console.log("Update Is Gender successfully.");
-        } catch(error) {
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
+    async updateVehicleType() {
+        try {
+            const query = `
+                
+            UPDATE integrate_final
+                SET vehicle_1_type =
+                CASE TRIM(vehicle_1)
+                    WHEN 'จักรยาน' THEN 1
+                    WHEN 'ยานยนต์สามล้อ' THEN 2
+                    WHEN 'รถก่อสร้างและปรับปรุงผิวถนน' THEN 3
+                    WHEN 'รถจักรยานยนต์' THEN 4
+                    WHEN 'รถฉุกเฉิน(กู้ภัย/กู้ชีพ)' THEN 5
+                    WHEN 'รถบรรทุกหนัก' THEN 6
+                    WHEN 'รถบรรทุกเล็กหรือรถตู้' THEN 7
+                    WHEN 'รถยนต์' THEN 8
+                    WHEN 'รถรับส่งนักเรียน' THEN 9
+                    WHEN 'รถอื่นๆ' THEN 10
+                    WHEN 'รถเพื่อการเกษตร' THEN 11
+                    WHEN 'รถแท็กซี่' THEN 12
+                    WHEN 'รถโดยสาร' THEN 13
+                    WHEN 'รถไฟ' THEN 14
+                    WHEN 'หัวรถลากจูง' THEN 15
+                    WHEN 'ไม่ระบุ' THEN 0
+                    ELSE 0
+                END
+            WHERE project_id = :projectId;
+                `;
+
+            await this.executeUpdate(query, this.project_id);
+
+            console.log("Update Vehicle Type successfully.");
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1595,7 +1653,7 @@ class ProcessIntegrateController {
             await this.executeUpdate(query, this.project_id);
 
             console.log("Update Is GPS successfully.");
-        } catch(error) {
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1673,20 +1731,31 @@ class ProcessIntegrateController {
 
     async updateCID() {
         try {
-            const query = `
+            // Step 1: fill cid_good
+            const step1 = `
             UPDATE integrate_final
-            SET cid = REPLACE(cid, '00000000', 'NEWVALUE') -- Replace 'NEWVALUE' with the desired value
-            WHERE
-                cid LIKE '%00000000%'
-                AND is_pid NOT LIKE '%00000000%'
-                AND is_pid IS NOT NULL;
+            SET cid_good = COALESCE(
+                cid_check(is_pid),
+                cid_check(eclaim_cid),
+                cid_check(police_vehicle_cid)
+            )
+            WHERE cid_good IS NULL;
         `;
+            let res1 = await this.executeUpdate(step1, this.project_id);
+            console.log(`✅ Step 1 done. Rows updated in cid_good: ${res1.affectedRows || res1.rowCount}`);
 
-            await this.executeUpdate(query, this.project_id);
+            // Step 2: copy cid_good → cid
+            const step2 = `
+            UPDATE integrate_final
+            SET cid = cid_good
+            WHERE cid_good IS NOT NULL;
+        `;
+            let res2 = await this.executeUpdate(step2, this.project_id);
+            console.log(`✅ Step 2 done. Rows updated in cid: ${res2.affectedRows || res2.rowCount}`);
 
-            console.log("Update CID successfully.");
+            console.log("✅ Update CID process completed.");
         } catch (error) {
-            console.error('Error updating CID:', error);
+            console.error("❌ Error updating CID:", error);
         }
     }
 
@@ -1742,7 +1811,7 @@ class ProcessIntegrateController {
             await this.executeUpdate(query, this.project_id);
 
             console.log("Update Is Dead successfully.");
-        } catch(error) {
+        } catch (error) {
             console.error('Error', error);
         }
     }
@@ -1785,7 +1854,7 @@ class ProcessIntegrateController {
             UPDATE integrate_final
             SET occupation = :description
             WHERE occupation = :code AND project_id = :projectId
-        `, { replacements: { description, code, projectId:this.project_id } });
+        `, { replacements: { description, code, projectId: this.project_id } });
         }
 
         // Update occupation based on is_occu_t for specific conditions
@@ -1794,7 +1863,7 @@ class ProcessIntegrateController {
         SET occupation = is_occu_t
         WHERE (occupation = '99' OR occupation = 'N' OR occupation = '-' OR occupation = '') 
         AND is_occu_t IS NOT NULL AND project_id = :projectId
-    `, { replacements: { projectId:this.project_id  } });
+    `, { replacements: { projectId: this.project_id } });
 
         // Update occupation based on police_vehicle_occupation for specific conditions
         await dbServer.query(`
@@ -1802,7 +1871,7 @@ class ProcessIntegrateController {
         SET occupation = police_vehicle_occupation
         WHERE (occupation IS NULL OR occupation = '99' OR occupation = '-' OR occupation = 'N' OR occupation = '') 
         AND police_vehicle_occupation IS NOT NULL AND project_id = :projectId
-    `, { replacements: { projectId:this.project_id  } });
+    `, { replacements: { projectId: this.project_id } });
 
         // Update occupation based on eclaim_occupation for specific conditions
         await dbServer.query(`
@@ -1810,7 +1879,7 @@ class ProcessIntegrateController {
         SET occupation = eclaim_occupation
         WHERE (occupation IS NULL OR occupation = '99' OR occupation = '-' OR occupation = 'N' OR occupation = '') 
         AND eclaim_occupation IS NOT NULL AND project_id = :projectId
-    `, { replacements: { projectId:this.project_id  } });
+    `, { replacements: { projectId: this.project_id } });
 
         // Set occupation to NULL for specific conditions
         await dbServer.query(`
@@ -1818,7 +1887,7 @@ class ProcessIntegrateController {
         SET occupation = NULL
         WHERE (occupation = '99' OR occupation = '-' OR occupation = 'N' OR occupation = '') 
         AND project_id = :projectId
-    `, { replacements: { projectId:this.project_id  } });
+    `, { replacements: { projectId: this.project_id } });
 
         console.log("Update Occupation Data successfully.");
     }
@@ -1862,7 +1931,7 @@ class ProcessIntegrateController {
             console.error('Error', error);
         }
 
-        try{
+        try {
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'     WHERE eclaim_vehicle_type LIKE '%${bycicleTxt}%' AND project_id = ${this.project_id};`);
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}'  WHERE eclaim_vehicle_type LIKE '%${motorcycleTxt}%' AND project_id = ${this.project_id};`);
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}'    WHERE eclaim_vehicle_type LIKE '%${tricycleTxt}%' AND project_id = ${this.project_id};`);
@@ -1965,7 +2034,7 @@ class ProcessIntegrateController {
             // Execute the custom SQL query to fetch summary data
             const results = await dbServer.query(sqlQuery, {
                 type: QueryTypes.SELECT,
-                replacements: { projectId : this.project_id }, // Assuming your query uses named parameters
+                replacements: { projectId: this.project_id }, // Assuming your query uses named parameters
             });
 
 

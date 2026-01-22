@@ -20,6 +20,9 @@ const HisMergeData = require('../models/HisMergeData');
 const PrepareMerge = require('../models/PrepareMerge');
 const Project = require('../models/Project');
 const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
+const { QueryTypes } = require('sequelize');
+const IntegrateFinalFull = require('../models/IntegrateFinalFull');
+
 
 const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
@@ -169,13 +172,16 @@ class ProjectIntegrateController {
                 // mysql and temp_is_clean already set with your Sequelize setup
             };
 
-            newRecords.push(newRecord);
+            if (this.checkName(newRecord['fname'] ,newRecord['lname'],true)){
+                newRecords.push(newRecord);
+            }
         }
         // bulk create new records in ISMergeData
         if(newRecords.length > 0){
             await ISMergeData.bulkCreate(newRecords);
         }
     }
+
 
     static async importEclaimAPIData(startDate,endDate,project){
 
@@ -237,7 +243,10 @@ class ProjectIntegrateController {
             newRecordData['project_id'] = project.id;
 
             // Add the new record data to the array
-            newRecordsData.push(newRecordData);
+            if (this.checkName(newRecordData['name'] ,newRecordData['lname'],true)){
+                newRecordsData.push(newRecordData);
+            }
+
         }
 
         // Bulk-create the new records
@@ -366,6 +375,7 @@ class ProjectIntegrateController {
                         CaseProvince: province_name
                     },
                     required: true,
+                    duplicating: false,
                 }
             ],
             where: {
@@ -378,28 +388,41 @@ class ProjectIntegrateController {
 
         console.log("Police Vehicle Record",rawVehicleRecords.length);
 
-        // Prepare an array for the new vehicle records
-        let newVehicleRecords = [];
+        const newVehicleRecords = [];
+        const seen = new Set(); // tracks event_id|fullname
 
-        // Loop through each record, transforming it
-        for (let oldRecord of rawVehicleRecords) {
-            let newRecordData = {};
-            for (let newColumn in columnMappingData) {
+// tiny normalizer to avoid false dupes from spacing/case
+        const normName = (s) =>
+            (s ?? '')
+                .toString()
+                .trim()
+                .replace(/\s+/g, ' ')   // collapse multiple spaces
+                .toLowerCase();
+
+        for (const oldRecord of rawVehicleRecords) {
+            const rec = {};
+            for (const newColumn in columnMappingData) {
                 const oldColumn = columnMappingData[newColumn];
-                newRecordData[newColumn] = oldRecord[oldColumn];
+                rec[newColumn] = oldRecord[oldColumn];
             }
-            // Add the projectId
-            newRecordData['id'] = null;
-            newRecordData['project_id'] = project.id;
-            // Add the new record data to the array
-            newVehicleRecords.push(newRecordData);
+
+            // normalize name for de-dup key
+            rec.fullname = rec.fullname ?? '';
+            const key = `${rec.event_id}|${normName(rec.fullname)}`;
+
+            // only keep rows with a valid name and not yet seen for this event
+            if (this.checkName(rec.fullname, "", false) && !seen.has(key)) {
+                seen.add(key);
+                rec.id = null;
+                rec.project_id = project.id;
+                newVehicleRecords.push(rec);
+            }
         }
 
-        // Bulk insert the new records to the table
-        if (newVehicleRecords.length > 0) {
+        // Bulk insert
+        if (newVehicleRecords.length) {
             await PoliceVehicleMergeData.bulkCreate(newVehicleRecords);
         }
-
     }
 
 
@@ -556,6 +579,34 @@ class ProjectIntegrateController {
         }
     }
 
+    /**
+     * Validate first/last names.
+     * - Non-empty after trim
+     * - Must NOT contain the Thai substring "ไม่"
+     * - If hasLastname === true, apply the same checks to lastname
+     *
+     * @param {string} name
+     * @param {string} lastname
+     * @param {boolean} hasLastname
+     * @returns {boolean}
+     */
+    static checkName(name, lastname, hasLastname = false) {
+        const clean = (v) => (v ?? '').toString().normalize('NFC').trim();
+        const containsForbidden = (s) => /ไม่/u.test(s); // Thai "ไม่"
+
+        const isValid = (s) => s.length > 0 && !containsForbidden(s);
+
+        const n = clean(name);
+        if (!isValid(n)) return false;
+
+        if (hasLastname) {
+            const ln = clean(lastname);
+            if (!isValid(ln)) return false;
+        }
+
+        return true;
+    }
+
     static setDate0(date,limitDate){
 
         let recordDate = null;
@@ -570,6 +621,121 @@ class ProjectIntegrateController {
             }
         }
         return recordDate;
+    }
+
+
+    // check table and swap
+
+    /**
+     * Returns true if every month (except the latest month) has total >= threshold.
+     * Range: from 2023-01-01 to today. Uses column `injury_Date`.
+     */
+    static async checkDataPass(threshold) {
+        const sequelize = IntegrateFinalFull.sequelize;
+
+        const sql = `
+              SELECT
+                DATE_FORMAT(\`injury_Date\`, '%Y-%m') AS ym,
+                COUNT(*) AS total
+              FROM \`integrate_final_full\`
+              WHERE \`injury_Date\` IS NOT NULL
+                AND \`injury_Date\` >= '2023-01-01'
+                AND \`injury_Date\` <  (CURRENT_DATE + INTERVAL 1 DAY)
+              GROUP BY ym
+              ORDER BY ym
+            `;
+
+        const rows = await sequelize.query(sql, { type: QueryTypes.SELECT });
+
+        // Convert query results into a map for quick lookup
+        const dataMap = {};
+        rows.forEach(r => {
+            dataMap[r.ym] = Number(r.total);
+        });
+
+        // Build full month list from 2023-01 to current month
+        const start = new Date("2023-01-01");
+        const now = new Date();
+        const currentYm = now.toISOString().slice(0, 7);
+
+        const months = [];
+        let d = new Date(start);
+        while (d <= now) {
+            const ym = d.toISOString().slice(0, 7); // YYYY-MM
+            months.push(ym);
+            d.setMonth(d.getMonth() + 1);
+        }
+
+        // Check all months except the current real month
+        const failing = months
+            .filter(ym => ym !== currentYm)
+            .filter(ym => !dataMap[ym] || dataMap[ym] < Number(threshold));
+
+        if (failing.length) {
+            console.log(`[CHECK] Failing months (below ${threshold} or missing), excluding current ${currentYm}:`);
+            failing.forEach(ym => {
+                console.log(`  ${ym} -> ${dataMap[ym] || 0}`);
+            });
+            return false;
+        }
+
+        console.log(`[CHECK] All months since Jan 2023 (except current ${currentYm}) are >= ${threshold}.`);
+        return true;
+    }
+
+    /**
+     * Validate, then atomically swap:
+     *   integrate_final_full  <->  integrate_final_full_process
+     * Returns true if swapped; false otherwise.
+     */
+    static async checkAndSwapTable() {
+        const LIVE  = 'integrate_final_full';
+        const STAGE = 'integrate_final_full_stage';
+        const THRESHOLD = 70000; // hard-coded as requested
+
+        try {
+            const pass = await this.checkDataPass(THRESHOLD);
+            if (!pass) {
+                console.log('[SWAP] Aborted: validation failed.');
+                return false;
+            }
+
+            const sequelize = IntegrateFinalFull.sequelize;
+
+            // Ensure stage exists
+            const stageExists = await sequelize.query(
+                `SELECT COUNT(*) AS cnt
+           FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = :t`,
+                { replacements: { t: STAGE }, type: QueryTypes.SELECT, plain: true }
+            );
+            if (!Number(stageExists?.cnt)) {
+                console.log(`[SWAP] ❌ Stage table '${STAGE}' not found. Aborting.`);
+                return false;
+            }
+
+            // Atomic 3-way swap using RENAME TABLE
+            const tmp = `${LIVE}_swap_${this.#ts()}`;
+            const sql = `
+        RENAME TABLE
+          \`${LIVE}\`  TO \`${tmp}\`,
+          \`${STAGE}\` TO \`${LIVE}\`,
+          \`${tmp}\`   TO \`${STAGE}\`
+      `;
+            await sequelize.query(sql);
+            console.log(`[SWAP] ✅ Swapped '${LIVE}' <-> '${STAGE}' successfully.`);
+            return true;
+        } catch (err) {
+            console.log(`[SWAP] ❌ Error: ${err.message}`);
+            return false;
+        }
+    }
+
+    static #ts() {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
     }
 
 }
@@ -645,6 +811,8 @@ module.exports = {
                 run_startDate = run_startDate.add(rangeDate + 1, 'days');
             }
         }
+
+        await ProjectIntegrateController.checkAndSwapTable();
 
         res.json({"code":200, "message":"Job success"})
     },
@@ -766,7 +934,6 @@ module.exports = {
 
         res.json({"code":200, "message":"Job success"})
     },
-
 
 
     autoProjectCheckDupHIS: async function (req, res) {

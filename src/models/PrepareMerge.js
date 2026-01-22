@@ -46,6 +46,7 @@ PrepareMerge.init({
     project_id: DataTypes.INTEGER,
     project_file_id: DataTypes.INTEGER,
     row_num: DataTypes.INTEGER,
+    log: DataTypes.TEXT,
 }, {
     sequelize:dbServer,
     modelName: 'PrepareMerge',

@@ -1,7 +1,7 @@
 const { Model, DataTypes } = require('sequelize');
 const db_server = require('../../config/connections/db_server'); // Adjust this path as necessary
 
-class IntegrateFinalFull extends Model {}
+class IntegrateFinalFull extends Model { }
 
 IntegrateFinalFull.init({
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -21,6 +21,7 @@ IntegrateFinalFull.init({
     belt_risk: { type: DataTypes.STRING(100) },
     helmet_risk: { type: DataTypes.STRING(100) },
     roaduser: { type: DataTypes.STRING(100) },
+    vehicle_1_type: { type: DataTypes.INTEGER },
     vehicle_1: { type: DataTypes.STRING(100) },
     vehicle_plate_1: { type: DataTypes.STRING(20) },
     accdate: { type: DataTypes.DATE },
@@ -369,7 +370,7 @@ IntegrateFinalFull.init({
     url_video: { type: DataTypes.STRING(255) },
     uuid: { type: DataTypes.BIGINT }
 }, {
-    sequelize:db_server, // This should be your Sequelize instance
+    sequelize: db_server, // This should be your Sequelize instance
     tableName: 'integrate_final_full', // Adjust to match your actual table name
     timestamps: true, // Set to false if your table does not have createdAt and updatedAt
     createdAt: 'created_at',
