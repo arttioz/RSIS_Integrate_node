@@ -1,5 +1,5 @@
 
-const {log} = require("debug");
+const { log } = require("debug");
 const moment = require('moment-timezone');
 
 // Import all models
@@ -17,6 +17,18 @@ const PoliceVehicleMergeData = require('../models/PoliceVehicleMergeData');
 const EReportMergeData = require('../models/EReportMergeData');
 const HisMergeData = require('../models/HisMergeData');
 
+const AccidentHIS = require('../models/his/AccidentHIS');
+const AdmissionHIS = require('../models/his/AdmissionHIS');
+const DeathHIS = require('../models/his/DeathHIS');
+const DiagnosisIpdHIS = require('../models/his/DiagnosisIpdHIS');
+const DiagnosisOpdHIS = require('../models/his/DiagnosisOpdHIS');
+const ProcedureIpdHIS = require('../models/his/ProcedureIpdHIS');
+const ProcedureOpdHIS = require('../models/his/ProcedureOpdHIS');
+const ServiceHIS = require('../models/his/ServiceHIS');
+
+const EMSData = require('../models/ems/EMSData');
+const EMSMergeData = require('../models/EMSMergeData');
+
 const PrepareMerge = require('../models/PrepareMerge');
 const Project = require('../models/Project');
 const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
@@ -26,13 +38,16 @@ const IntegrateFinalFull = require('../models/IntegrateFinalFull');
 
 const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
-const {Op} = require("sequelize");
+const dbServerRawHIS = require('../../config/connections/db_server_raw_his');
+const { Op } = require("sequelize");
 const provinces = require('../utils/provinces');
 
 
 const ProcessIntegrateController = require('./processIntegrateController');
 const ProcessIntegrateEreportController = require('./processIntegrateEreportController');
 const ProcessIntegrateHISController = require('./processIntegrateHISController');
+const ProcessIntegrateEMSController = require('./processIntegrateEMSController');
+const ProcessETLHISController = require('./processETLHISController');
 const ProcessMapController = require('./processMapController');
 const e = require("express");
 require('dotenv').config();
@@ -40,15 +55,15 @@ require('dotenv').config();
 class ProjectIntegrateController {
 
 
-    static async startProject(preDate,startDate,endDate,subDate,provinceCode){
+    static async startProject(preDate, startDate, endDate, subDate, provinceCode) {
 
-        let project = await ProjectIntegrateController.getProject(preDate,startDate,endDate,subDate,provinceCode);
+        let project = await ProjectIntegrateController.getProject(preDate, startDate, endDate, subDate, provinceCode);
 
-        console.log("Start Integrate Project",project.id,project.province_code);
-        console.log("Pre Date:",preDate.format('DD/MM/YYYY'));
-        console.log("Start date:",startDate.format('DD/MM/YYYY'));
-        console.log("End Date:",endDate.format('DD/MM/YYYY'));
-        console.log("Sub Date:",subDate.format('DD/MM/YYYY'));
+        console.log("Start Integrate Project", project.id, project.province_code);
+        console.log("Pre Date:", preDate.format('DD/MM/YYYY'));
+        console.log("Start date:", startDate.format('DD/MM/YYYY'));
+        console.log("End Date:", endDate.format('DD/MM/YYYY'));
+        console.log("Sub Date:", subDate.format('DD/MM/YYYY'));
 
 
         console.log(`Import Data For Project`, project.id);
@@ -57,13 +72,13 @@ class ProjectIntegrateController {
         await this.importDataForProject(preDate, subDate, project);
         console.timeEnd('importDataForProject');
 
-        let processController = new ProcessIntegrateController(project.id,project.province_code);
+        let processController = new ProcessIntegrateController(project.id, project.province_code);
 
         await processController.mergeRSIS()
 
     }
 
-    static async importDataForProject(startDate,endDate,project){
+    static async importDataForProject(startDate, endDate, project) {
 
         await this.importISAPIData(startDate, endDate, project)
         await this.importEclaimAPIData(startDate, endDate, project)
@@ -71,7 +86,7 @@ class ProjectIntegrateController {
         await this.importPoliceVehicleAPIData(startDate, endDate, project)
     }
 
-    static async getProject(preDate,startDate,endDate,subDate,provinceCode){
+    static async getProject(preDate, startDate, endDate, subDate, provinceCode) {
 
         let project = null;
         try {
@@ -85,7 +100,7 @@ class ProjectIntegrateController {
             });
 
             // If no project found, create a new one and save it to DB.
-            if (!project){
+            if (!project) {
                 project = await Project.create({
                     name: "Auto Project",
                     province_code: provinceCode,
@@ -110,31 +125,31 @@ class ProjectIntegrateController {
 
             await project.save();
 
-        } catch(error) {
+        } catch (error) {
             console.error(error);
-        }finally {
-            return  project;
+        } finally {
+            return project;
         }
     }
 
 
-    static async importISAPIData(startDate,endDate,project){
+    static async importISAPIData(startDate, endDate, project) {
 
-        console.log(`Import IS DATA For project`,project.id);
+        console.log(`Import IS DATA For project`, project.id);
 
-        await ISMergeData.destroy({ truncate : true, cascade: false });
+        await ISMergeData.destroy({ truncate: true, cascade: false });
 
         let rawRecords = await ISRawData.findAll({
             where: {
                 adate: {
-                    [Op.gte]: moment(startDate).startOf('day').toDate() ,  // >= startDate
+                    [Op.gte]: moment(startDate).startOf('day').toDate(),  // >= startDate
                     [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 },
                 aplace: project.province_code
             },
         });
 
-        console.log("IS Record",rawRecords.length);
+        console.log("IS Record", rawRecords.length);
 
         let newRecords = []; // array to hold new records
 
@@ -159,7 +174,7 @@ class ProjectIntegrateController {
                 ref: oldRecord.ref,
                 project_id: project.id,
                 ddate: ddate,
-                dlt:dlt,
+                dlt: dlt,
                 diser: diser,
                 timer: timer,
                 birth: birth,
@@ -172,18 +187,18 @@ class ProjectIntegrateController {
                 // mysql and temp_is_clean already set with your Sequelize setup
             };
 
-            if (this.checkName(newRecord['fname'] ,newRecord['lname'],true)){
+            if (this.checkName(newRecord['fname'], newRecord['lname'], true)) {
                 newRecords.push(newRecord);
             }
         }
         // bulk create new records in ISMergeData
-        if(newRecords.length > 0){
+        if (newRecords.length > 0) {
             await ISMergeData.bulkCreate(newRecords);
         }
     }
 
 
-    static async importEclaimAPIData(startDate,endDate,project){
+    static async importEclaimAPIData(startDate, endDate, project) {
 
         const columnMapping = {
             cid: 'IdCard',
@@ -213,7 +228,7 @@ class ProjectIntegrateController {
         };
 
         // Erase the EclaimMergeData table
-        await EclaimMergeData.destroy({ truncate : true, cascade: false });
+        await EclaimMergeData.destroy({ truncate: true, cascade: false });
 
         let province_name = provinces[project.province_code];
         // Fetch records that meets the date requirements
@@ -227,7 +242,7 @@ class ProjectIntegrateController {
             }
         });
 
-        console.log("Eclaim Record",rawRecords.length);
+        console.log("Eclaim Record", rawRecords.length);
 
         // Prepare an array for the new records
         let newRecordsData = [];
@@ -243,7 +258,7 @@ class ProjectIntegrateController {
             newRecordData['project_id'] = project.id;
 
             // Add the new record data to the array
-            if (this.checkName(newRecordData['name'] ,newRecordData['lname'],true)){
+            if (this.checkName(newRecordData['name'], newRecordData['lname'], true)) {
                 newRecordsData.push(newRecordData);
             }
 
@@ -257,7 +272,7 @@ class ProjectIntegrateController {
     }
 
 
-    static async importPoliceEventAPIData(startDate,endDate,project){
+    static async importPoliceEventAPIData(startDate, endDate, project) {
         const columnMappingEvent = {
             event_id: 'AccidentNumber',
             adate: 'CaseDay',
@@ -294,7 +309,7 @@ class ProjectIntegrateController {
         let province_name = provinces[project.province_code];
 
         // Truncate the PoliceMergeEvent table
-        await PoliceEventMergeData.destroy({ truncate : true, cascade: false });
+        await PoliceEventMergeData.destroy({ truncate: true, cascade: false });
 
         // Fetch events records that meets the date requirements
         let rawEventRecords = await PoliceEventApi.findAll({
@@ -307,7 +322,7 @@ class ProjectIntegrateController {
             }
         });
 
-        console.log("Police Event Record",rawEventRecords.length);
+        console.log("Police Event Record", rawEventRecords.length);
 
         // Loop through each record, transforming and saving it
         let newEventRecordsData = rawEventRecords.map(oldRecord => {
@@ -327,7 +342,7 @@ class ProjectIntegrateController {
     }
 
 
-    static async importPoliceVehicleAPIData(startDate,endDate,project){
+    static async importPoliceVehicleAPIData(startDate, endDate, project) {
         const columnMappingData = {
             id: 'id',
             event_id: 'AccidentNumber',
@@ -383,15 +398,18 @@ class ProjectIntegrateController {
                     [Op.gte]: startDate,
                     [Op.lte]: moment(endDate).endOf('day').toDate() // Less than or equal to end of endDate
                 }
-            }
+            },
+            // THIS ACTS AS THE DISTINCT
+            group: ['PoliceVehicleApi.id']
         });
 
-        console.log("Police Vehicle Record",rawVehicleRecords.length);
+
+        console.log("Police Vehicle Record", rawVehicleRecords.length);
 
         const newVehicleRecords = [];
         const seen = new Set(); // tracks event_id|fullname
 
-// tiny normalizer to avoid false dupes from spacing/case
+        // tiny normalizer to avoid false dupes from spacing/case
         const normName = (s) =>
             (s ?? '')
                 .toString()
@@ -426,14 +444,14 @@ class ProjectIntegrateController {
     }
 
 
-    static async importEreportVehicleAPIData(startDate,endDate){
+    static async importEreportVehicleAPIData(startDate, endDate) {
         const modelAttributes = EReportApi.getAttributes();
         const columnMapping = {};
 
         Object.keys(modelAttributes).forEach(column => {
             columnMapping[column] = column;
         });
-        await EReportMergeData.destroy({ truncate : true, cascade: false });
+        await EReportMergeData.destroy({ truncate: true, cascade: false });
         // Fetch records that meets the date requirements
         let rawRecords = await EReportApi.findAll({
             where: {
@@ -444,7 +462,7 @@ class ProjectIntegrateController {
             }
         });
 
-        console.log("E-report Record",rawRecords.length);
+        console.log("E-report Record", rawRecords.length);
 
         // Prepare an array for the new records
         let newRecordsData = [];
@@ -474,7 +492,7 @@ class ProjectIntegrateController {
         }
     }
 
-    static async importHISData(startDate,endDate,provinceCode){
+    static async importHISData(startDate, endDate, provinceCode) {
 
         const columnMapping = {
             id: 'id',
@@ -530,9 +548,9 @@ class ProjectIntegrateController {
         };
 
         await dbServer.query(`TRUNCATE TABLE temp_his_query_clean;`);
-        await HisMergeData.destroy({ truncate : true, cascade: false });
-        console.log(startDate,endDate,provinceCode)
-        try{
+        await HisMergeData.destroy({ truncate: true, cascade: false });
+        console.log(startDate, endDate, provinceCode)
+        try {
 
             // Fetch records that meet the date requirements
             let rawRecords = await HISApi.findAll({
@@ -545,7 +563,7 @@ class ProjectIntegrateController {
                 }
             });
 
-            console.log("HIS Record",rawRecords.length);
+            console.log("HIS Record", rawRecords.length);
 
             // Prepare an array for the new records
             let newRecordsData = [];
@@ -574,7 +592,169 @@ class ProjectIntegrateController {
                 await HisMergeData.bulkCreate(newRecordsData);
             }
 
-        }catch (e) {
+        } catch (e) {
+            console.log(e);
+        }
+    }
+
+    static async importEMSData(startDate, endDate, provinceCode) {
+
+        const columnMapping = {
+            id: 'id',
+            incident_number: 'incident_number',
+            notification_time: 'notification_time',
+            center_code: 'center_code',
+            district: 'district',
+            sub_district: 'sub_district',
+            latitude: 'latitude',
+            longitude: 'longitude',
+            scene_location: 'scene_location',
+            severity_code: 'severity_code',
+            incident_event: 'incident_event',
+            patient_number: 'patient_number',
+            ipd_event_number: 'ipd_event_number',
+            id_card_number: 'id_card_number',
+            patient_sequence: 'patient_sequence',
+            patient_id: 'patient_id',
+            title: 'title',
+            first_name: 'first_name',
+            last_name: 'last_name',
+            gender: 'gender',
+            age_years: 'age_years',
+            age_months: 'age_months',
+            patient_type: 'patient_type',
+            nationality: 'nationality',
+            passport_number: 'passport_number',
+            treatment_right: 'treatment_right',
+            other_insurance: 'other_insurance',
+            country: 'country',
+            vehicle_type: 'vehicle_type',
+            vehicle_plate_category: 'vehicle_plate_category',
+            vehicle_plate_number: 'vehicle_plate_number',
+            vehicle_province: 'vehicle_province',
+            delivery_province: 'delivery_province',
+            hospital: 'hospital',
+            hospital_type: 'hospital_type',
+            delivery_time: 'delivery_time',
+            triage_level: 'triage_level',
+            operation_number: 'operation_number',
+            operation_event_number: 'operation_event_number',
+            command_time: 'command_time',
+            unit_level: 'unit_level',
+            time_unit_notified: 'time_unit_notified',
+            time_left_base: 'time_left_base',
+            lat_left_base: 'lat_left_base',
+            long_left_base: 'long_left_base',
+            time_arrived_scene: 'time_arrived_scene',
+            time_left_scene: 'time_left_scene',
+            lat_scene: 'lat_scene',
+            long_scene: 'long_scene',
+            time_arrived_hospital: 'time_arrived_hospital',
+            lat_hospital: 'lat_hospital',
+            long_hospital: 'long_hospital',
+            time_arrived_base: 'time_arrived_base',
+            lat_base: 'lat_base',
+            long_base: 'long_base',
+            idc_code_scene: 'idc_code_scene',
+            operation_status: 'operation_status',
+            operation_option: 'operation_option',
+            vehicle_plate_cat_symptom_25: 'vehicle_plate_cat_symptom_25',
+            vehicle_plate_num_symptom_25: 'vehicle_plate_num_symptom_25',
+            vehicle_province_symptom_25: 'vehicle_province_symptom_25',
+            vehicle_owner_symptom_25: 'vehicle_owner_symptom_25',
+            system_status: 'system_status',
+            recorder_name: 'recorder_name',
+            patient_type_2: 'patient_type_2',
+            consciousness: 'consciousness',
+            breathing: 'breathing',
+            wound: 'wound',
+            deformity: 'deformity',
+            organ: 'organ',
+            airway: 'airway',
+            stop_bleeding: 'stop_bleeding',
+            splinting: 'splinting',
+            fluids: 'fluids',
+            fluids_detail: 'fluids_detail',
+            cpr: 'cpr',
+            medication: 'medication',
+            initial_care_result: 'initial_care_result',
+            wound_2: 'wound_2',
+            deformity_2: 'deformity_2',
+            blood_loss: 'blood_loss',
+            organ_2: 'organ_2',
+            medicine_method: 'medicine_method',
+            medicine_detail: 'medicine_detail',
+            obgyn: 'obgyn',
+            obgyn_detail: 'obgyn_detail',
+            pediatrics: 'pediatrics',
+            pediatrics_detail: 'pediatrics_detail',
+            surgery: 'surgery',
+            surgery_detail: 'surgery_detail',
+            others: 'others',
+            diagnosis: 'diagnosis',
+            airway_2: 'airway_2',
+            stop_bleeding_2: 'stop_bleeding_2',
+            splinting_2: 'splinting_2',
+            fluids_2: 'fluids_2',
+            admitted: 'admitted',
+            treatment_result: 'treatment_result',
+            vital_signs: 'vital_signs',
+            neuro_signs: 'neuro_signs',
+            pupils: 'pupils',
+            o2_sat: 'o2_sat',
+            dtx: 'dtx',
+            createdAt: 'createdAt',
+            updatedAt: 'updatedAt'
+        };
+
+        await dbServer.query(`TRUNCATE TABLE temp_ems_clean;`);
+        await EMSMergeData.destroy({ truncate: true, cascade: false });
+        console.log(startDate, endDate, provinceCode)
+        try {
+            let province_name = provinces[provinceCode];
+            // Fetch records that meet the date requirements
+            let rawRecords = await EMSData.findAll({
+                where: {
+                    notification_time: {
+                        [Op.gte]: startDate,
+                        [Op.lte]: endDate
+                    },
+                    province_code: province_name
+                }
+            });
+
+            console.log("EMS Record", province_name, rawRecords.length);
+
+            // Prepare an array for the new records
+            let newRecordsData = [];
+            for (let oldRecord of rawRecords) {
+
+
+                let newRecordData = {};
+                for (let newColumn in columnMapping) {
+                    let oldColumn = columnMapping[newColumn];
+                    newRecordData[newColumn] = oldRecord[oldColumn];
+                }
+
+                // Populate additional merge fields
+                newRecordData['match'] = ''; // Default or logic to populate
+                newRecordData['province_code'] = provinceCode; // Default or logic to populate
+                newRecordData['province'] = province_name; // Default or logic to populate
+                newRecordData['is_duplicate'] = 0; // Default or logic to check duplicates
+                newRecordData['old_id'] = 0;
+                newRecordData['project_id'] = null; // Set proper ID later if needed
+                newRecordData['created_at'] = new Date(); // Current time
+                newRecordData['updated_at'] = new Date(); // Current time
+
+                newRecordsData.push(newRecordData);
+            }
+
+            // Bulk-create the new records
+            if (newRecordsData.length > 0) {
+                await EMSMergeData.bulkCreate(newRecordsData);
+            }
+
+        } catch (e) {
             console.log(e);
         }
     }
@@ -607,11 +787,11 @@ class ProjectIntegrateController {
         return true;
     }
 
-    static setDate0(date,limitDate){
+    static setDate0(date, limitDate) {
 
         let recordDate = null;
 
-        if(date){
+        if (date) {
             let tempDate = new Date(date);
 
             // If ddate is a valid date and not before limit date,
@@ -689,7 +869,7 @@ class ProjectIntegrateController {
      * Returns true if swapped; false otherwise.
      */
     static async checkAndSwapTable() {
-        const LIVE  = 'integrate_final_full';
+        const LIVE = 'integrate_final_full';
         const STAGE = 'integrate_final_full_stage';
         const THRESHOLD = 70000; // hard-coded as requested
 
@@ -735,7 +915,52 @@ class ProjectIntegrateController {
     static #ts() {
         const d = new Date();
         const p = n => String(n).padStart(2, '0');
-        return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+        return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    }
+
+
+
+    static async checkHISConnection() {
+        try {
+            await dbServer.authenticate();
+            console.log('Connection to all models has been established successfully.');
+
+            await dbServerRaw.authenticate();
+            console.log('Connection to all raw models has been established successfully.');
+
+            await dbServerRawHIS.authenticate();
+            console.log('Connection to all HIS models has been established successfully.');
+
+            // An array of all the models
+            const models = [
+                AccidentHIS, AdmissionHIS, DeathHIS, DiagnosisIpdHIS, DiagnosisOpdHIS, ProcedureIpdHIS, ProcedureOpdHIS, ServiceHIS
+            ];
+
+            // 1. Create an object to store the results
+            const results = {};
+
+            for (const model of models) {
+                // 2. Fetch first row from each model
+                // We use { raw: true } to get clean JSON data without extra Sequelize wrapper stuff
+                const row = await model.findOne({ raw: true });
+
+                console.log(`Fetched sample from ${model.tableName}`);
+
+                // 3. Save the row to our results object using the table name as the key
+                results[model.tableName] = row;
+            }
+
+            // 4. Return the object containing one row from every table
+            return {
+                status: 'success',
+                message: 'Connection to all models has been established successfully.',
+                data: results
+            };
+
+        } catch (error) {
+            console.error(`Unable to connect to the database:`, error);
+            throw new Error(error.message);
+        }
     }
 
 }
@@ -747,7 +972,7 @@ module.exports = {
 
 
         let startDate = moment(process.env.PROJECT_FIRST_DATE);
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
@@ -755,17 +980,17 @@ module.exports = {
 
         while (startDate.isBefore(endDateLimit)) {
 
-            let preDate = startDate.clone().subtract(preRangDate,'days');
-            let endDate = startDate.clone().add(rangeDate,'days');
-            let subDate = endDate.clone().add(subRangeDate,'days');
+            let preDate = startDate.clone().subtract(preRangDate, 'days');
+            let endDate = startDate.clone().add(rangeDate, 'days');
+            let subDate = endDate.clone().add(subRangeDate, 'days');
 
 
-            await ProjectIntegrateController.startProject(preDate, startDate, endDate, subDate,process.env.PROVINCE);
+            await ProjectIntegrateController.startProject(preDate, startDate, endDate, subDate, process.env.PROVINCE);
 
             startDate = startDate.add(rangeDate, 'days');
         }
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
     },
 
     autoProjectCustomDate: async function (req, res) {
@@ -775,33 +1000,33 @@ module.exports = {
         let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
         let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
-        if (!checkStart || !checkEnd){
-            res.json({"code":400, "message":"Error Date format"})
+        if (!checkStart || !checkEnd) {
+            res.json({ "code": 400, "message": "Error Date format" })
         }
 
         const startDate = moment(startDateInput);
         const endDateLimit = moment(endDateInput);
 
 
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
-        for (let province_code = 10; province_code <= 96; province_code++){
+        for (let province_code = 10; province_code <= 96; province_code++) {
 
             let run_startDate = startDate.clone();
 
             while (run_startDate.isBefore(endDateLimit)) {
 
-                let preDate = run_startDate.clone().subtract(preRangDate,'days');
-                let endDate = run_startDate.clone().add(rangeDate,'days');
-                let subDate = endDate.clone().add(subRangeDate,'days');
+                let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+                let endDate = run_startDate.clone().add(rangeDate, 'days');
+                let subDate = endDate.clone().add(subRangeDate, 'days');
 
 
-                if (provinces.hasOwnProperty(province_code)){
+                if (provinces.hasOwnProperty(province_code)) {
 
                     const startTime = new Date(); // Start timing
-                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
+                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate, province_code);
 
                     const endTime = new Date(); // End timing
                     const totalTime = endTime - startTime; // Calculate total time in milliseconds
@@ -814,7 +1039,7 @@ module.exports = {
 
         await ProjectIntegrateController.checkAndSwapTable();
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
     },
 
 
@@ -863,10 +1088,10 @@ module.exports = {
                 run_startDate = run_startDate.add(rangeDate + 1, 'days');
             }
 
-            res.json({"code": 200, "message": "Job success"})
+            res.json({ "code": 200, "message": "Job success" })
         } catch (error) {
             console.error('An error occurred:', error);
-            return res.status(500).json({ "code": 500, "message": "Internal server error", "error":error.message });
+            return res.status(500).json({ "code": 500, "message": "Internal server error", "error": error.message });
         }
     },
 
@@ -874,31 +1099,31 @@ module.exports = {
     autoProjectHISProvince: async function (req, res) {
         let startDateInput = "";
         let endDateInput = "";
-        let province_code= "";
+        let province_code = "";
         let checkStart = ""
         let checkEnd = "";
 
-        try{
-            startDateInput  = req.query.startdate || req.query.startDate;
+        try {
+            startDateInput = req.query.startdate || req.query.startDate;
             endDateInput = req.query.enddate || req.query.endDate;
             province_code = req.query.provinceCode;
             checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
             checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
-            if (!checkStart || !checkEnd){
-                res.json({"code":400, "message":"autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+            if (!checkStart || !checkEnd) {
+                res.json({ "code": 400, "message": "autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput })
             }
-        }catch (error) {
+        } catch (error) {
             console.error(error);
         }
 
-        const startDate =  moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
-        const endDateLimit =  moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
+        const startDate = moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
+        const endDateLimit = moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
 
         console.log(startDate, endDateLimit)
 
 
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
@@ -906,22 +1131,22 @@ module.exports = {
 
         while (run_startDate.isBefore(endDateLimit)) {
 
-            let preDate = run_startDate.clone().subtract(preRangDate,'days');
-            let endDate = run_startDate.clone().add(rangeDate,'days');
-            let subDate = endDate.clone().add(subRangeDate,'days');
+            let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+            let endDate = run_startDate.clone().add(rangeDate, 'days');
+            let subDate = endDate.clone().add(subRangeDate, 'days');
 
             if (endDate.isAfter(endDateLimit)) {
                 endDate = endDateLimit.clone();
             }
 
 
-            if (provinces.hasOwnProperty(province_code)){
+            if (provinces.hasOwnProperty(province_code)) {
 
                 const startTime = new Date(); // Start timing
-                console.log(startDate,endDate,province_code)
+                console.log(startDate, endDate, province_code)
 
-                await ProjectIntegrateController.importHISData(run_startDate,endDate,province_code)
-                let processController = new ProcessIntegrateHISController(run_startDate,endDate,province_code);
+                await ProjectIntegrateController.importHISData(run_startDate, endDate, province_code)
+                let processController = new ProcessIntegrateHISController(run_startDate, endDate, province_code);
                 await processController.mergeRSIS()
 
                 const endTime = new Date(); // End timing
@@ -932,38 +1157,104 @@ module.exports = {
             run_startDate = run_startDate.add(rangeDate + 1, 'days');
         }
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
+    },
+
+    autoProjectEMSProvince: async function (req, res) {
+        let startDateInput = req.query.startDate;
+        let endDateInput = req.query.endDate;
+        let province_code = req.query.provinceCode;
+        let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
+        let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
+
+        if (!checkStart || !checkEnd) {
+            res.json({ "code": 400, "message": "Error Date format" })
+        }
+
+        const startDate = moment(startDateInput);
+        const endDateLimit = moment(endDateInput);
+
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
+        let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
+        let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
+
+        let run_startDate = startDate.clone();
+
+        // for (let province_code = 11; province_code <= 11; province_code++) {
+        province_code = 50;
+
+        while (run_startDate.isBefore(endDateLimit)) {
+
+            console.log("Rundate", run_startDate)
+            console.log("endDateLimit", endDateLimit)
+            console.log("rangeDate", rangeDate)
+            console.log("preRangDate", preRangDate)
+            console.log("subRangeDate", subRangeDate)
+
+            let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+            let endDate = run_startDate.clone().add(rangeDate, 'days');
+            let subDate = endDate.clone().add(subRangeDate, 'days');
+
+
+            if (provinces.hasOwnProperty(province_code)) {
+
+                const startTime = new Date(); // Start timing
+
+                const endTime = new Date(); // End timing
+                const totalTime = endTime - startTime; // Calculate total time in milliseconds
+
+
+                await ProjectIntegrateController.importEMSData(run_startDate, endDate, province_code)
+                let processController = new ProcessIntegrateEMSController(run_startDate, endDate, province_code);
+                await processController.mergeRSIS()
+
+                console.log(`Total time: ${totalTime} ms`);
+            }
+
+            run_startDate = run_startDate.add(rangeDate + 1, 'days');
+            console.log("NEXT Rundate", run_startDate)
+            console.log("IS CON", run_startDate.isBefore(endDateLimit))
+        }
+
+        console.log("END WHILE")
+        // }
+
+
+        // let processController = new ProcessIntegrateEMSController(startDate, endDate, province_code);
+        // await processController.mergeRSIS()
+
+        res.json({ "code": 200, "message": "Job success" + startDate + " " + endDateLimit + " " + province_code })
     },
 
 
     autoProjectCheckDupHIS: async function (req, res) {
         let startDateInput = "";
         let endDateInput = "";
-        let province_code= "";
+        let province_code = "";
         let checkStart = ""
         let checkEnd = "";
 
-        try{
-            startDateInput  = req.query.startdate || req.query.startDate;
+        try {
+            startDateInput = req.query.startdate || req.query.startDate;
             endDateInput = req.query.enddate || req.query.endDate;
             province_code = req.query.provinceCode;
             checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
             checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
-            if (!checkStart || !checkEnd){
-                res.json({"code":400, "message":"autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput})
+            if (!checkStart || !checkEnd) {
+                res.json({ "code": 400, "message": "autoProjectHISProvince Error Date format startDateInput:" + startDateInput + " endDateInput:" + endDateInput })
             }
-        }catch (error) {
+        } catch (error) {
             console.error(error);
         }
 
-        const startDate =  moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
-        const endDateLimit =  moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
+        const startDate = moment.tz(startDateInput, 'Asia/Bangkok').startOf('day');
+        const endDateLimit = moment.tz(endDateInput, 'Asia/Bangkok').endOf('day');
 
         console.log(startDate, endDateLimit)
 
 
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
@@ -971,22 +1262,22 @@ module.exports = {
 
         while (run_startDate.isBefore(endDateLimit)) {
 
-            let preDate = run_startDate.clone().subtract(preRangDate,'days');
-            let endDate = run_startDate.clone().add(rangeDate,'days');
-            let subDate = endDate.clone().add(subRangeDate,'days');
+            let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+            let endDate = run_startDate.clone().add(rangeDate, 'days');
+            let subDate = endDate.clone().add(subRangeDate, 'days');
 
             if (endDate.isAfter(endDateLimit)) {
                 endDate = endDateLimit.clone();
             }
 
 
-            if (provinces.hasOwnProperty(province_code)){
+            if (provinces.hasOwnProperty(province_code)) {
 
                 const startTime = new Date(); // Start timing
-                console.log(startDate,endDate,province_code)
+                console.log(startDate, endDate, province_code)
 
-                await ProjectIntegrateController.importHISData(run_startDate,endDate,province_code)
-                let processController = new ProcessIntegrateHISController(run_startDate,endDate,province_code);
+                await ProjectIntegrateController.importHISData(run_startDate, endDate, province_code)
+                let processController = new ProcessIntegrateHISController(run_startDate, endDate, province_code);
                 await processController.mergeRSIS()
 
                 const endTime = new Date(); // End timing
@@ -997,18 +1288,18 @@ module.exports = {
             run_startDate = run_startDate.add(rangeDate + 1, 'days');
         }
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
     },
 
     autoCompareWithEreportCustomDate: async function (req, res) {
         const startDate = moment("2024-04-11");
         const endDate = moment("2024-04-17");
-        await ProjectIntegrateController.importEreportVehicleAPIData(startDate,endDate)
-        let processController = new ProcessIntegrateEreportController(startDate,endDate);
+        await ProjectIntegrateController.importEreportVehicleAPIData(startDate, endDate)
+        let processController = new ProcessIntegrateEreportController(startDate, endDate);
 
         await processController.mergeRSIS()
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
     },
 
     autoRiskMapCustomDate: async function (req, res) {
@@ -1017,8 +1308,8 @@ module.exports = {
         let checkStart = moment(startDateInput, 'YYYY-MM-DD', true).isValid();
         let checkEnd = moment(endDateInput, 'YYYY-MM-DD', true).isValid();
 
-        if (!checkStart || !checkEnd){
-            res.json({"code":400, "message":"Error Date format"})
+        if (!checkStart || !checkEnd) {
+            res.json({ "code": 400, "message": "Error Date format" })
         }
 
         const startDate = moment(startDateInput);
@@ -1026,11 +1317,11 @@ module.exports = {
 
         console.log(startDate, endDate)
 
-        let processController = new ProcessMapController(startDate,endDate);
+        let processController = new ProcessMapController(startDate, endDate);
 
         let result = await processController.performClustering()
 
-        res.json({"code":200, "message":result})
+        res.json({ "code": 200, "message": result })
     },
 
 
@@ -1039,27 +1330,27 @@ module.exports = {
 
 
         let startDate = moment(process.env.PROJECT_FIRST_DATE);
-        let preRangDate =  parseInt(process.env.PROJECT_PRE_DATE);
+        let preRangDate = parseInt(process.env.PROJECT_PRE_DATE);
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
         const endDateLimit = moment().subtract(1, 'days');
 
-        for (let province_code = 10; province_code <= 96; province_code++){
+        for (let province_code = 10; province_code <= 96; province_code++) {
 
             let run_startDate = startDate.clone();
 
             while (run_startDate.isBefore(endDateLimit)) {
 
-                let preDate = run_startDate.clone().subtract(preRangDate,'days');
-                let endDate = run_startDate.clone().add(rangeDate,'days');
-                let subDate = endDate.clone().add(subRangeDate,'days');
+                let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+                let endDate = run_startDate.clone().add(rangeDate, 'days');
+                let subDate = endDate.clone().add(subRangeDate, 'days');
 
 
-                if (provinces.hasOwnProperty(province_code)){
+                if (provinces.hasOwnProperty(province_code)) {
 
                     const startTime = new Date(); // Start timing
-                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate,province_code);
+                    await ProjectIntegrateController.startProject(preDate, run_startDate, endDate, subDate, province_code);
 
                     const endTime = new Date(); // End timing
                     const totalTime = endTime - startTime; // Calculate total time in milliseconds
@@ -1071,17 +1362,45 @@ module.exports = {
 
         }
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
+    },
+
+
+    autoProjectHISETL: async function (req, res) {
+
+        try {
+            // Define start and end dates
+            const startDate = '2025-01-01';
+            const endDate = '2025-01-31';
+
+            // Call runETL from ProcessETLHISController
+            let result = await ProcessETLHISController.runETL(startDate, endDate);
+
+            res.json({ "code": 200, "message": result })
+        } catch (error) {
+            console.error(error);
+            res.json({ "code": 500, "message": error.message })
+        }
     },
 
 
     startProject: async function (req, res) {
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
     },
     cleanDatabase: function (req, res) {
 
-        res.json({"code":200, "message":"Job success"})
+        res.json({ "code": 200, "message": "Job success" })
+    },
+
+
+    testHISDatabaseConnection: async function (req, res) {
+        try {
+            const result = await ProjectIntegrateController.checkHISConnection();
+            return res.send(result);
+        } catch (error) {
+            return res.status(500).send(error.message);
+        }
     },
 
     testDatabaseConnection: async function (req, res) {
@@ -1102,7 +1421,7 @@ module.exports = {
 
             for (const model of models) {
                 // Fetch first row from each model
-                console.log(`Testing ${model.tableName}`,model);
+                console.log(`Testing ${model.tableName}`, model);
                 const row = await model.findOne();
                 console.log(`First row from ${model.tableName}`);
             }
@@ -1114,4 +1433,14 @@ module.exports = {
             return res.status(500).send(`Unable to connect to the database`);
         }
     },
+
+
+    testEMSData: async function (req, res) {
+        try {
+            const result = await EMSData.findOne();
+            return res.send(result);
+        } catch (error) {
+            return res.status(500).send(error.message);
+        }
+    }
 }

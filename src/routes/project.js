@@ -22,5 +22,17 @@ router.get('/start/autoProject/map', projectController.autoRiskMapCustomDate);
 
 router.get('/test/connection', projectController.testDatabaseConnection);
 
+router.get('/test/ems', projectController.testEMSData);
+
+router.get('/start/autoProject/ems', projectController.autoProjectEMSProvince);
+
+//test helloworld route
+router.get('/test/helloworld', function (req, res) {
+    res.send('Hello World!');
+});
+
+
+router.get('/his/etl', projectController.autoProjectHISETL);
+
 
 module.exports = router;
