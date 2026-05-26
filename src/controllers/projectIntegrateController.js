@@ -39,7 +39,7 @@ const IntegrateFinalFull = require('../models/IntegrateFinalFull');
 const dbServer = require('../../config/connections/db_server');
 const dbServerRaw = require('../../config/connections/db_server_raw');
 const dbServerRawHIS = require('../../config/connections/db_server_raw_his');
-const { Op } = require("sequelize");
+const { Op, Sequelize } = require("sequelize");
 const provinces = require('../utils/provinces');
 
 
@@ -709,6 +709,7 @@ class ProjectIntegrateController {
 
         await dbServer.query(`TRUNCATE TABLE temp_ems_clean;`);
         await EMSMergeData.destroy({ truncate: true, cascade: false });
+
         console.log(startDate, endDate, provinceCode)
         try {
             let province_name = provinces[provinceCode];
@@ -719,14 +720,26 @@ class ProjectIntegrateController {
                         [Op.gte]: startDate,
                         [Op.lte]: endDate
                     },
-                    province_code: province_name
+                    province_code: province_name,
+                    operation_option: {
+                        [Op.in]: [
+                            'ไม่รักษา-เสียชีวิตก่อนชุดปฏิบัติการไปถึง',
+                            'รักษา-นำส่ง',
+                            'รักษา-ไม่นำส่ง',
+                            'รักษา-เสียชีวิต ณ จุดเกิดเหตุ'
+                        ]
+                    },
+                    [Op.and]: [
+                        Sequelize.literal(`NOT(id_card_number IS NULL OR id_card_number = "" OR LENGTH(id_card_number) != 13 OR id_card_number NOT REGEXP "^[0-9]+$")`),
+                        Sequelize.literal(`NOT(first_name IS NULL OR first_name = "" OR first_name LIKE "%ไม่%" OR last_name IS NULL OR last_name = "" OR last_name LIKE "%ไม่%")`)
+                    ]
                 }
             });
 
             console.log("EMS Record", province_name, rawRecords.length);
 
             // Prepare an array for the new records
-            let newRecordsData = [];
+            let newRecordsDatas = [];
             for (let oldRecord of rawRecords) {
 
 
@@ -746,12 +759,15 @@ class ProjectIntegrateController {
                 newRecordData['created_at'] = new Date(); // Current time
                 newRecordData['updated_at'] = new Date(); // Current time
 
-                newRecordsData.push(newRecordData);
+
+                if (this.checkName(newRecordData['first_name'], newRecordData['last_name'], true)) {
+                    newRecordsDatas.push(newRecordData);
+                }
             }
 
             // Bulk-create the new records
-            if (newRecordsData.length > 0) {
-                await EMSMergeData.bulkCreate(newRecordsData);
+            if (newRecordsDatas.length > 0) {
+                await EMSMergeData.bulkCreate(newRecordsDatas);
             }
 
         } catch (e) {
@@ -1178,46 +1194,47 @@ module.exports = {
         let rangeDate = parseInt(process.env.PROJECT_RANGE_DATE) - 1;
         let subRangeDate = parseInt(process.env.PROJECT_SUB_DATE);
 
-        let run_startDate = startDate.clone();
-
-        // for (let province_code = 11; province_code <= 11; province_code++) {
-        province_code = 50;
-
-        while (run_startDate.isBefore(endDateLimit)) {
-
-            console.log("Rundate", run_startDate)
-            console.log("endDateLimit", endDateLimit)
-            console.log("rangeDate", rangeDate)
-            console.log("preRangDate", preRangDate)
-            console.log("subRangeDate", subRangeDate)
-
-            let preDate = run_startDate.clone().subtract(preRangDate, 'days');
-            let endDate = run_startDate.clone().add(rangeDate, 'days');
-            let subDate = endDate.clone().add(subRangeDate, 'days');
 
 
-            if (provinces.hasOwnProperty(province_code)) {
+        for (let province_code = 10; province_code <= 96; province_code++) {
 
-                const startTime = new Date(); // Start timing
+            let run_startDate = startDate.clone();
 
-                const endTime = new Date(); // End timing
-                const totalTime = endTime - startTime; // Calculate total time in milliseconds
+            while (run_startDate.isBefore(endDateLimit)) {
+
+                console.log("Rundate", run_startDate)
+                console.log("endDateLimit", endDateLimit)
+                console.log("rangeDate", rangeDate)
+                console.log("preRangDate", preRangDate)
+                console.log("subRangeDate", subRangeDate)
+
+                let preDate = run_startDate.clone().subtract(preRangDate, 'days');
+                let endDate = run_startDate.clone().add(rangeDate, 'days');
+                let subDate = endDate.clone().add(subRangeDate, 'days');
 
 
-                await ProjectIntegrateController.importEMSData(run_startDate, endDate, province_code)
-                let processController = new ProcessIntegrateEMSController(run_startDate, endDate, province_code);
-                await processController.mergeRSIS()
+                if (provinces.hasOwnProperty(province_code)) {
 
-                console.log(`Total time: ${totalTime} ms`);
+                    const startTime = new Date(); // Start timing
+
+                    const endTime = new Date(); // End timing
+                    const totalTime = endTime - startTime; // Calculate total time in milliseconds
+
+
+                    await ProjectIntegrateController.importEMSData(run_startDate, endDate, province_code)
+                    let processController = new ProcessIntegrateEMSController(run_startDate, endDate, province_code);
+                    await processController.mergeRSIS()
+
+                    console.log(`Total time: ${totalTime} ms`);
+                }
+
+                run_startDate = run_startDate.add(rangeDate + 1, 'days');
+                console.log("NEXT Rundate", run_startDate)
+                console.log("IS CON", run_startDate.isBefore(endDateLimit))
             }
 
-            run_startDate = run_startDate.add(rangeDate + 1, 'days');
-            console.log("NEXT Rundate", run_startDate)
-            console.log("IS CON", run_startDate.isBefore(endDateLimit))
+            console.log("END WHILE")
         }
-
-        console.log("END WHILE")
-        // }
 
 
         // let processController = new ProcessIntegrateEMSController(startDate, endDate, province_code);

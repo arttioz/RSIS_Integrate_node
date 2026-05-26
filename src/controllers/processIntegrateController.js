@@ -1552,7 +1552,7 @@ class ProcessIntegrateController {
                 SET admit = 1
                 WHERE admit IS NULL
                   AND (
-                    (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 3, 6, 7))
+                    (is_staer   REGEXP '^[0-9]+$' AND CAST(is_staer   AS UNSIGNED) = 7)
                         OR
                     (is_staward REGEXP '^-?[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (1,2,3,4,5,6))
                         OR
@@ -1581,24 +1581,49 @@ class ProcessIntegrateController {
 
     async updateGender() {
         try {
-            const query = `
-                UPDATE integrate_final
-                SET gender = 1
-                WHERE gender = 2
-                  AND (
-                    (is_sex = 1)
-                        OR
-                    (police_vehicle_sex = "ชาย")
-                        OR
-                    (eclaim_gender = "ชาย")
-                    ) AND project_id = :projectId;
-                `;
+            // Priority 3 — Police (fill null only)
+            const queryPolice = `
+            UPDATE integrate_final
+            SET gender = CASE
+                WHEN police_vehicle_sex LIKE '%ชาย%'  THEN 1
+                WHEN police_vehicle_sex LIKE '%หญิง%' THEN 2
+            END
+            WHERE police_vehicle_sex IS NOT NULL
+              AND (police_vehicle_sex LIKE '%ชาย%' OR police_vehicle_sex LIKE '%หญิง%')
+              AND gender IS NULL;
+        `;
 
-            await this.executeUpdate(query, this.project_id);
+            // Priority 2 — IS (fill null only)
+            const queryIS = `
+            UPDATE integrate_final
+            SET gender = is_sex
+            WHERE is_sex IS NOT NULL
+              AND is_sex IN (1, 2)
+              AND gender IS NULL;
+        `;
 
-            console.log("Update Is Gender successfully.");
+            // Priority 1 — Eclaim (overwrite เสมอ เพราะ priority สูงสุด)
+            const queryEclaim = `
+            UPDATE integrate_final
+            SET gender = CASE
+                WHEN eclaim_gender LIKE '%ชาย%'  THEN 1
+                WHEN eclaim_gender LIKE '%หญิง%' THEN 2
+            END
+            WHERE eclaim_gender IS NOT NULL
+              AND (eclaim_gender LIKE '%ชาย%' OR eclaim_gender LIKE '%หญิง%');
+        `;
+
+            await this.executeUpdate(queryPolice);
+            console.log("Update Gender (Police) successfully.");
+
+            await this.executeUpdate(queryIS);
+            console.log("Update Gender (IS) successfully.");
+
+            await this.executeUpdate(queryEclaim);
+            console.log("Update Gender (Eclaim) successfully.");
+
         } catch (error) {
-            console.error('Error', error);
+            console.error('Error updateGenderData:', error);
         }
     }
 
@@ -1637,6 +1662,7 @@ class ProcessIntegrateController {
             console.error('Error', error);
         }
     }
+
 
 
     async updateGPS() {
@@ -1792,8 +1818,7 @@ class ProcessIntegrateController {
                 UPDATE integrate_final
                 SET is_death = 1
                 WHERE
-                    is_death IS NULL
-                  AND (
+                  (
                     (is_staer REGEXP '^-?[0-9]+$' AND CAST(is_staer AS UNSIGNED) IN (1, 6))
                         OR
                     (is_staward REGEXP '^-?[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (5))
@@ -1894,19 +1919,6 @@ class ProcessIntegrateController {
 
     async updateVehicleData() {
 
-        const walkTxt = "เดินเท้า";
-        const bycicleTxt = "จักรยาน";
-        const motorcycleTxt = "รถจักรยานยนต์";
-        const tricycleTxt = "สามล้อ";
-        const carTxt = "รถยนต์"; // ปิกอั๊พ รถแท็กซี่
-        const vanTxt = "รถตู้"; // รถตู้ทั่วไป รถตู้โดยสารประจำทาง รถตู้สาธารณะอื่นๆ
-        const truckTxt = "รถกระบะ"; // รถตู้ทั่วไป รถตู้โดยสารประจำทาง รถตู้สาธารณะอื่นๆ
-        const bigTruckTxt = "รถบรรทุก"; //รถพ่วง รถบรรทุกหนัก
-        const veryBigTruckTxt = "รถพ่วง"; //รถพ่วง รถบรรทุกหนัก
-        const busTxt = "รถบัส"; //โดยสาร
-        const omniBusTxt = "รถโดยสาร"; //โดยสาร
-        const schoolBusTxt = "รถรับส่งนักเรียน"; // รถรับส่งนักเรียน
-
         const walk = "เดินเท้า";
         const bycicle = "จักรยาน";
         const motorcycle = "รถจักรยานยนต์";
@@ -1916,36 +1928,74 @@ class ProcessIntegrateController {
         const bigTruck = "รถบรรทุกหนัก";
         const bus = "รถโดยสาร";
 
+        const bycicleTxt = "จักรยาน";
+        const motorcycleTxt = "จักรยานยนต์";
+        const tricycleTxt = "สามล้อ";
+        const carTxt = "รถยนต์";
+        const vanTxt = "รถตู้";
+        const truckTxt = "รถกระบะ";
+        const bigTruckTxt = "รถบรรทุก";
+        const veryBigTruckTxt = "รถพ่วง";
+        const busTxt = "รถบัส";
+        const omniBusTxt = "รถโดยสาร";
 
+        // ── 1. HIS diagcode (base) ────────────────────────────────────────────
         try {
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = null WHERE LEFT(his_diagcode, 2) = 'V0' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}' WHERE LEFT(his_diagcode, 2) = 'V1' AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = null          WHERE LEFT(his_diagcode, 2) = 'V0' AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'  WHERE LEFT(his_diagcode, 2) = 'V1' AND project_id = ${this.project_id};`);
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}' WHERE LEFT(his_diagcode, 2) = 'V2' AND project_id = ${this.project_id};`);
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}' WHERE LEFT(his_diagcode, 2) = 'V3' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}' WHERE LEFT(his_diagcode, 2) = 'V4' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}' WHERE LEFT(his_diagcode, 2) = 'V5' AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}'      WHERE LEFT(his_diagcode, 2) = 'V4' AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}'    WHERE LEFT(his_diagcode, 2) = 'V5' AND project_id = ${this.project_id};`);
             await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bigTruck}' WHERE LEFT(his_diagcode, 2) = 'V6' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}' WHERE LEFT(his_diagcode, 2) = 'V7' AND project_id = ${this.project_id};`);
-
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}'      WHERE LEFT(his_diagcode, 2) = 'V7' AND project_id = ${this.project_id};`);
         } catch (error) {
-            console.error('Error', error);
+            console.error('Error updateVehicleData HIS:', error);
         }
 
+        // ── 2. Police (priority 3 — fill null only) ───────────────────────────
         try {
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'     WHERE eclaim_vehicle_type LIKE '%${bycicleTxt}%' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}'  WHERE eclaim_vehicle_type LIKE '%${motorcycleTxt}%' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}'    WHERE eclaim_vehicle_type LIKE '%${tricycleTxt}%' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}'         WHERE eclaim_vehicle_type LIKE '%${carTxt}%' AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}'       WHERE (eclaim_vehicle_type LIKE '%${vanTxt}%' OR eclaim_vehicle_type LIKE '%${truckTxt}%') AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bigTruck}'    WHERE (eclaim_vehicle_type LIKE '%${bigTruckTxt}%' OR eclaim_vehicle_type LIKE '%${veryBigTruckTxt}%') AND project_id = ${this.project_id};`);
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}'         WHERE (eclaim_vehicle_type LIKE '%${busTxt}%' OR eclaim_vehicle_type LIKE '%${omniBusTxt}%') AND project_id = ${this.project_id};`);
-
-            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = NULL             WHERE (vehicle_1 = 'คนเดินเท้า' OR vehicle_1 = 'เดินเท้า') AND project_id = ${this.project_id};`);
-
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'   WHERE police_vehicle_vehicle LIKE '%${bycicleTxt}%'      AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}' WHERE police_vehicle_vehicle LIKE '%${motorcycleTxt}%'   AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}'  WHERE police_vehicle_vehicle LIKE '%${tricycleTxt}%'      AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}'       WHERE police_vehicle_vehicle LIKE '%${carTxt}%'           AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}'     WHERE (police_vehicle_vehicle LIKE '%${vanTxt}%' OR police_vehicle_vehicle LIKE '%${truckTxt}%')           AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bigTruck}'  WHERE (police_vehicle_vehicle LIKE '%${bigTruckTxt}%' OR police_vehicle_vehicle LIKE '%${veryBigTruckTxt}%') AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}'       WHERE (police_vehicle_vehicle LIKE '%${busTxt}%' OR police_vehicle_vehicle LIKE '%${omniBusTxt}%')         AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
         } catch (error) {
-            console.error('Error', error);
+            console.error('Error updateVehicleData Police:', error);
         }
 
+        // ── 3. IS (priority 2 — fill null only) ──────────────────────────────
+        // is_injp = 1 → walk | is_injt numeric → vehicle type
+        try {
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${walk}'      WHERE is_injp = '1'                                                  AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'   WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) = 1               AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}' WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) = 2              AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}'  WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) = 3               AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}'       WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) IN (4, 10)        AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}'     WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) IN (5, 18)        AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bigTruck}'  WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) IN (6, 7)         AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}'       WHERE is_injp != '1' AND CAST(is_injt AS UNSIGNED) IN (8, 9)         AND vehicle_1 IS NULL AND project_id = ${this.project_id};`);
+        } catch (error) {
+            console.error('Error updateVehicleData IS:', error);
+        }
+
+        // ── 4. Eclaim (priority 1 — overwrite) ───────────────────────────────
+        try {
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bycicle}'   WHERE eclaim_vehicle_type LIKE '%${bycicleTxt}%'   AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${motorcycle}' WHERE eclaim_vehicle_type LIKE '%${motorcycleTxt}%' AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${tricycle}'  WHERE eclaim_vehicle_type LIKE '%${tricycleTxt}%'   AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${car}'       WHERE eclaim_vehicle_type LIKE '%${carTxt}%'        AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${truck}'     WHERE (eclaim_vehicle_type LIKE '%${vanTxt}%' OR eclaim_vehicle_type LIKE '%${truckTxt}%')           AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bigTruck}'  WHERE (eclaim_vehicle_type LIKE '%${bigTruckTxt}%' OR eclaim_vehicle_type LIKE '%${veryBigTruckTxt}%') AND project_id = ${this.project_id};`);
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = '${bus}'       WHERE (eclaim_vehicle_type LIKE '%${busTxt}%' OR eclaim_vehicle_type LIKE '%${omniBusTxt}%')         AND project_id = ${this.project_id};`);
+
+            // Clean up walk
+            await dbServer.query(`UPDATE integrate_final SET vehicle_1 = NULL WHERE (vehicle_1 = 'คนเดินเท้า' OR vehicle_1 = 'เดินเท้า') AND project_id = ${this.project_id};`);
+        } catch (error) {
+            console.error('Error updateVehicleData Eclaim:', error);
+        }
 
         console.log("Update Vehicle Data successfully.");
     }

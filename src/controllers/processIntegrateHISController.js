@@ -1117,14 +1117,14 @@ class ProcessIntegrateHISController {
 
 
         try {
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = null WHERE LEFT(his_diagcode, 2) = 'V0' AND vehicle_1 is not null;`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bycicle}' WHERE LEFT(his_diagcode, 2) = 'V1' AND vehicle_1 is null;`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${motorcycle}' WHERE LEFT(his_diagcode, 2) = 'V2' AND vehicle_1 is null;`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${tricycle}' WHERE LEFT(his_diagcode, 2) = 'V3' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${car}' WHERE LEFT(his_diagcode, 2) = 'V4' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${truck}' WHERE LEFT(his_diagcode, 2) = 'V5' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bigTruck}' WHERE LEFT(his_diagcode, 2) = 'V6' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bus}' WHERE LEFT(his_diagcode, 2) = 'V7' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = null WHERE LEFT(his_diagcode, 2) = 'V0' AND (vehicle_1 is not null AND TRIM(vehicle_1) != '');`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bycicle}' WHERE LEFT(his_diagcode, 2) = 'V1' AND (vehicle_1 is null OR TRIM(vehicle_1) = '');`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${motorcycle}' WHERE LEFT(his_diagcode, 2) = 'V2' AND (vehicle_1 is null OR TRIM(vehicle_1) = '');`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${tricycle}' WHERE LEFT(his_diagcode, 2) = 'V3' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${car}' WHERE LEFT(his_diagcode, 2) = 'V4' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${truck}' WHERE LEFT(his_diagcode, 2) = 'V5' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bigTruck}' WHERE LEFT(his_diagcode, 2) = 'V6' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_his SET vehicle_1 = '${bus}' WHERE LEFT(his_diagcode, 2) = 'V7' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
 
         } catch (error) {
             console.error('Error', error);

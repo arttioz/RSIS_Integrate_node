@@ -304,7 +304,7 @@ class ProcessIntegrateEMSController {
         row.name = row.first_name || '';
         row.lname = row.last_name || '';
         row.cid = row.id_card_number || row.passport_number || '';
-        row.gender = row.gender === 'ชาย' ? 1 : (row.gender === 'หญิง' ? 2 : null);
+        row.gender = row.gender === 'M' ? 1 : (row.gender === 'F' ? 2 : null);
 
         row = await this.cleanNameData(row);
 
@@ -658,10 +658,14 @@ class ProcessIntegrateEMSController {
         // await this.updateBeltRiskData();
         // await this.updateAlcoholRiskData();
 
-        await this.updateGPSData();
+        // await this.updateGPSData();
 
+        await this.updateHospitalData();
         await this.mergeFinalDataToFinalTable();
     }
+
+
+
 
     async mergeFinalDataToFinalTable() {
         await this.deleteOldData();
@@ -1415,7 +1419,7 @@ class ProcessIntegrateEMSController {
 
     async updateIsDeadData() {
         try {
-            await dbServer.query(`UPDATE integrate_final_ems SET is_death = 1 WHERE ems_treatment_result LIKE '%เสียชีวิต%' OR ems_initial_care_result LIKE '%เสียชีวิต%';`);
+            await dbServer.query(`UPDATE integrate_final_ems SET is_death = 1 WHERE ems_treatment_result LIKE '%เสีย%' OR ems_initial_care_result LIKE '%เสีย%';`);
 
             console.log("Update IS Death Data successfully.");
 
@@ -1480,6 +1484,23 @@ class ProcessIntegrateEMSController {
         }
     }
 
+
+    async updateHospitalData() {
+        try {
+            await dbServer.query(`UPDATE integrate_final_ems SET cid = ems_id_card_number WHERE (cid IS NULL OR TRIM(cid) = '') AND ems_id_card_number IS NOT NULL AND TRIM(ems_id_card_number) != '';`);
+            await dbServer.query(`UPDATE integrate_final_ems SET gender = 1 WHERE ems_gender = 'M' AND (gender IS NULL OR gender = '' OR gender = 0);`);
+            await dbServer.query(`UPDATE integrate_final_ems SET gender = 2 WHERE ems_gender = 'F' AND (gender IS NULL OR gender = '' OR gender = 0);`);
+            await dbServer.query(`UPDATE integrate_final_ems SET lname = ems_last_name WHERE (lname IS NULL OR TRIM(lname) = '') AND ems_last_name IS NOT NULL AND TRIM(ems_last_name) != '';`);
+            await dbServer.query(`UPDATE integrate_final_ems SET nationality = ems_nationality WHERE (nationality IS NULL OR TRIM(nationality) = '') AND ems_nationality IS NOT NULL AND TRIM(ems_nationality) != '';`);
+            await dbServer.query(`UPDATE integrate_final_ems SET aaumpor = ems_district WHERE (aaumpor IS NULL OR TRIM(aaumpor) = '') AND ems_district IS NOT NULL AND TRIM(ems_district) != '';`);
+            await dbServer.query(`UPDATE integrate_final_ems SET atumbol = ems_sub_district WHERE (atumbol IS NULL OR TRIM(atumbol) = '') AND ems_sub_district IS NOT NULL AND TRIM(ems_sub_district) != '';`);
+
+            console.log("Update Hospital Data successfully.");
+        } catch (error) {
+            console.error('Error', error);
+        }
+    }
+
     async updateAlcoholRiskData() {
         try {
             //EMS
@@ -1520,14 +1541,14 @@ class ProcessIntegrateEMSController {
 
 
         try {
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${walkTxt}' WHERE ems_vehicle_type LIKE '%เดินเท้า%' AND vehicle_1 is null;`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bycicle}' WHERE ems_vehicle_type LIKE '%จักรยาน%' AND ems_vehicle_type NOT LIKE '%จักรยานยนต์%' AND vehicle_1 is null;`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${motorcycle}' WHERE ems_vehicle_type LIKE '%จักรยานยนต์%' AND vehicle_1 is null;`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${tricycle}' WHERE ems_vehicle_type LIKE '%สามล้อ%' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${car}' WHERE ems_vehicle_type LIKE '%รถยนต์%' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${truck}' WHERE (ems_vehicle_type LIKE '%กระบะ%' OR ems_vehicle_type LIKE '%ตู้%') AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bigTruck}' WHERE ems_vehicle_type LIKE '%บรรทุก%' AND vehicle_1 is null`);
-            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bus}' WHERE ems_vehicle_type LIKE '%บัส%' AND vehicle_1 is null`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${walkTxt}' WHERE ems_vehicle_type LIKE '%เดินเท้า%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '');`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bycicle}' WHERE ems_vehicle_type LIKE '%จักรยาน%' AND ems_vehicle_type NOT LIKE '%จักรยานยนต์%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '');`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${motorcycle}' WHERE ems_vehicle_type LIKE '%จักรยานยนต์%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '');`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${tricycle}' WHERE ems_vehicle_type LIKE '%สามล้อ%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${car}' WHERE ems_vehicle_type LIKE '%รถยนต์%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${truck}' WHERE (ems_vehicle_type LIKE '%กระบะ%' OR ems_vehicle_type LIKE '%ตู้%') AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bigTruck}' WHERE ems_vehicle_type LIKE '%บรรทุก%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
+            await dbServer.query(`UPDATE integrate_final_ems SET vehicle_1 = '${bus}' WHERE ems_vehicle_type LIKE '%บัส%' AND (vehicle_1 is null OR TRIM(vehicle_1) = '')`);
 
         } catch (error) {
             console.error('Error', error);
@@ -1539,9 +1560,9 @@ class ProcessIntegrateEMSController {
     async updateRoadUserData() {
         try {
             // Update for EMS
-            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'ผู้ขับขี่' WHERE ems_patient_type LIKE '%ขับ%' AND roaduser is null;`);
-            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'ผู้โดยสาร' WHERE ems_patient_type LIKE '%โดยสาร%' AND roaduser is null;`);
-            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'คนเดินเท้า' WHERE ems_patient_type LIKE '%เดินเท้า%' AND roaduser is null;`);
+            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'ผู้ขับขี่' WHERE ems_patient_type LIKE '%ขับ%' AND (roaduser is null OR TRIM(roaduser) = '');`);
+            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'ผู้โดยสาร' WHERE ems_patient_type LIKE '%โดยสาร%' AND (roaduser is null OR TRIM(roaduser) = '');`);
+            await dbServer.query(`UPDATE integrate_final_ems SET roaduser = 'คนเดินเท้า' WHERE ems_patient_type LIKE '%เดินเท้า%' AND (roaduser is null OR TRIM(roaduser) = '');`);
         }
         catch (error) {
             console.error('Error', error);
