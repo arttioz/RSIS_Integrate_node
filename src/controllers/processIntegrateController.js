@@ -1788,21 +1788,43 @@ class ProcessIntegrateController {
 
     async updateAge() {
         try {
-            const query = `
+            // Update DOB + คำนวณ age จาก is_birth (แม่นกว่า age field)
+            const queryDob = `
             UPDATE integrate_final
-            SET 
+            SET
                 dob = is_birth,
                 age = TIMESTAMPDIFF(YEAR, is_birth, injury_date)
-            WHERE 
-                is_birth IS NOT NULL
-                AND dob != is_birth;
+            WHERE is_birth IS NOT NULL
+              AND (dob IS NULL OR dob != is_birth)
+              AND TIMESTAMPDIFF(YEAR, is_birth, injury_date) >= 0
+              AND TIMESTAMPDIFF(YEAR, is_birth, injury_date) <= 120;
         `;
 
-            await this.executeUpdate(query, this.project_id);
+            // Fill age ที่ยังเป็น null จาก IS > Eclaim > Police
+            const queryAge = `
+            UPDATE integrate_final
+            SET age = CASE
+                WHEN is_age IS NOT NULL AND is_age >= 0 AND is_age <= 120
+                    THEN is_age
+                WHEN eclaim_age IS NOT NULL AND eclaim_age >= 0 AND eclaim_age <= 120
+                    THEN eclaim_age
+                WHEN police_vehicle_age IS NOT NULL AND police_vehicle_age >= 0 AND police_vehicle_age <= 120
+                    THEN police_vehicle_age
+                ELSE age
+            END
+            WHERE age IS NULL
+              OR age < 0
+              OR age > 120; 
+        `;
 
-            console.log("Updated DOB and Age successfully.");
+            await this.executeUpdate(queryDob);
+            console.log("Updated DOB and Age from birth successfully.");
+
+            await this.executeUpdate(queryAge);
+            console.log("Updated Age from IS/Eclaim/Police successfully.");
+
         } catch (error) {
-            console.error("Error updating DOB and Age:", error);
+            console.error("Error updateAge:", error);
         }
     }
 
