@@ -12,6 +12,7 @@ const Project = require('../models/Project');
 const ProjectIntegrateFinal = require('../models/ProjectIntegrateFinal');
 const IntegrateFinal = require('../models/IntegrateFinal');
 const IntegrateFinalFull = require('../models/IntegrateFinalFull');
+const IntegrateFinalFullStage = require('../models/IntegrateFinalFullStage');
 
 
 
@@ -906,10 +907,12 @@ class ProcessIntegrateController {
         await this.updateATumbolData()
         await this.updateAAumporData()
         await this.updateAProvinceData()
+        await this.updateAmphoeCode()
         await this.updateInjuryDateData()
         await this.updateIsDeadData()
         await this.updateOccupationData()
         await this.updateVehicleData()
+        await this.updateVehicleFromIsInjt()
         await this.updateHelmetRiskData()
         await this.updateBeltRiskData()
         await this.updateAlcoholRiskData()
@@ -1011,15 +1014,15 @@ class ProcessIntegrateController {
             });
 
             // Bulk create in IntegrateFinalFull with the fetched data
-            await IntegrateFinalFull.bulkCreate(bulkData);
-            console.log('Data create to Integrate Final Full successfully.');
+            await IntegrateFinalFullStage.bulkCreate(bulkData);
+            console.log('Data create to Integrate Final Full Stage successfully.');
         } catch (error) {
             console.error('Error copying data:', error);
         }
     }
 
     async deleteOldProjectData() {
-        await IntegrateFinalFull.destroy({
+        await IntegrateFinalFullStage.destroy({
             where: {
                 project_id: this.project_id
             }
@@ -1037,7 +1040,7 @@ class ProcessIntegrateController {
         const endDate = project.end_date; // Assuming 'end_date' is the field name
         const province_code = this.province_code; // Assuming 'end_date' is the field name
 
-        await IntegrateFinalFull.destroy({
+        await IntegrateFinalFullStage.destroy({
             where: {
                 injury_date: {
                     [Op.gte]: startDate, // Greater than or equal to startDate
@@ -1445,6 +1448,34 @@ class ProcessIntegrateController {
     }
 
 
+    async updateAmphoeCode() {
+        try {
+            const sql = `
+                UPDATE integrate_final f
+                JOIN (
+                    SELECT am_id, amphoe_t
+                    FROM lib_address_moi
+                    WHERE ch_id = 10
+                    GROUP BY am_id, amphoe_t
+                ) d
+                  ON REPLACE(REPLACE(REPLACE(f.aaumpor, 'แขวง', ''), 'เขต', ''), ' ', '')
+                   = REPLACE(REPLACE(REPLACE(d.amphoe_t, 'แขวง', ''), 'เขต', ''), ' ', '')
+                SET f.aaumpor      = d.amphoe_t,
+                    f.aaumpor_code = d.am_id
+                WHERE f.aprovince_code = 10
+                  AND (f.aaumpor_code IS NULL OR f.aaumpor <> d.amphoe_t)
+                  AND f.project_id = :projectId;
+            `;
+            await dbServer.query(sql, {
+                replacements: { projectId: this.project_id },
+                type: QueryTypes.UPDATE,
+            });
+            console.log("Update Amphoe code successfully.");
+        } catch (error) {
+            console.error('Error updateAmphoeCode:', error);
+        }
+    }
+
     async updateATumbolData() {
         try {
             const query = `
@@ -1548,30 +1579,22 @@ class ProcessIntegrateController {
     async updateIsAdmitData() {
         try {
             const query = `
-                UPDATE integrate_final
-                SET admit = 1
-                WHERE admit IS NULL
-                  AND (
-                    (is_staer   REGEXP '^[0-9]+$' AND CAST(is_staer   AS UNSIGNED) = 7)
-                        OR
-                    (is_staward REGEXP '^-?[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (1,2,3,4,5,6))
-                        OR
-                    (is_refer_result REGEXP '^-?[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4,5))
-                        OR
-                    eclaim_injury_status like '%ปานกลาง%'
-                        OR
-                    eclaim_injury_status like '%สาหัส%'
-                        OR
-                    eclaim_injury_status like '%สาหัส%'
-                        OR
-                    eclaim_injury_status like '%สูญเสีย%'
-                        OR
-                    police_vehicle_injury like '%นอนรักษา%'
-                    ) AND project_id = :projectId;
-                `;
+            UPDATE integrate_final
+            SET admit = CASE
+                WHEN (is_staer REGEXP '^[0-9]+$' AND CAST(is_staer AS UNSIGNED) = 7)
+                  OR (is_staward REGEXP '^[0-9]+$' AND CAST(is_staward AS UNSIGNED) IN (1, 2, 5, 6))
+                  OR (is_refer_result REGEXP '^[0-9]+$' AND CAST(is_refer_result AS UNSIGNED) IN (4, 5))
+                  OR eclaim_injury_status LIKE '%ปานกลาง%'
+                  OR eclaim_injury_status LIKE '%สาหัส%'
+                  OR eclaim_injury_status LIKE '%สูญเสีย%'
+                  OR police_vehicle_injury LIKE '%นอนรักษา%'
+                THEN 1
+                ELSE 0
+            END
+            WHERE project_id = :projectId;
+        `;
 
             await this.executeUpdate(query, this.project_id);
-
             console.log("Update Is Admit successfully.");
         } catch (error) {
             console.error('Error', error);
@@ -1804,10 +1827,10 @@ class ProcessIntegrateController {
             const queryAge = `
             UPDATE integrate_final
             SET age = CASE
-                WHEN is_age IS NOT NULL AND is_age >= 0 AND is_age <= 120
-                    THEN is_age
                 WHEN eclaim_age IS NOT NULL AND eclaim_age >= 0 AND eclaim_age <= 120
                     THEN eclaim_age
+                WHEN is_age IS NOT NULL AND is_age >= 0 AND is_age <= 120
+                    THEN is_age
                 WHEN police_vehicle_age IS NOT NULL AND police_vehicle_age >= 0 AND police_vehicle_age <= 120
                     THEN police_vehicle_age
                 ELSE age
@@ -2022,6 +2045,124 @@ class ProcessIntegrateController {
         console.log("Update Vehicle Data successfully.");
     }
 
+    async updateVehicleFromIsInjt() {
+        // ── Step 1: map จากรหัส is_injt (ยกเว้น '99' และ 'N') ──────────────────
+        try {
+            const sqlByCode = `
+            UPDATE integrate_final
+            SET vehicle_1 = CASE TRIM(is_injt)
+                WHEN '01'  THEN 'จักรยาน'
+                WHEN '1'   THEN 'จักรยาน'
+                WHEN '011' THEN 'จักรยาน'
+                WHEN '02'  THEN 'รถจักรยานยนต์'
+                WHEN '2'   THEN 'รถจักรยานยนต์'
+                WHEN '021' THEN 'รถจักรยานยนต์'
+                WHEN '022' THEN 'รถจักรยานยนต์'
+                WHEN '023' THEN 'รถจักรยานยนต์'
+                WHEN '03'  THEN 'ยานยนต์สามล้อ'
+                WHEN '3'   THEN 'ยานยนต์สามล้อ'
+                WHEN '17'  THEN 'ยานยนต์สามล้อ'
+                WHEN '04'  THEN 'รถยนต์'
+                WHEN '4'   THEN 'รถยนต์'
+                WHEN '041' THEN 'รถยนต์'
+                WHEN '10'  THEN 'รถยนต์'
+                WHEN '05'  THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '5'   THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '18'  THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '181' THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '182' THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '19'  THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '191' THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '192' THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '193' THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN '06'  THEN 'รถบรรทุกหนัก'
+                WHEN '6'   THEN 'รถบรรทุกหนัก'
+                WHEN '07'  THEN 'รถบรรทุกหนัก'
+                WHEN '7'   THEN 'รถบรรทุกหนัก'
+                WHEN '08'  THEN 'รถโดยสาร'
+                WHEN '8'   THEN 'รถโดยสาร'
+                WHEN '09'  THEN 'รถโดยสาร'
+                WHEN '9'   THEN 'รถโดยสาร'
+                WHEN '15'  THEN 'รถเพื่อการเกษตร'
+                WHEN '16'  THEN 'รถเพื่อการเกษตร'
+                WHEN '11'  THEN 'รถไฟ'
+                WHEN '12'  THEN 'รถอื่นๆ'
+                WHEN '13'  THEN 'อื่นๆ'
+                WHEN '14'  THEN 'อื่นๆ'
+                ELSE vehicle_1
+            END
+            WHERE (vehicle_1 IS NULL OR TRIM(vehicle_1) = '')
+              AND is_injt IS NOT NULL
+              AND TRIM(is_injt) NOT IN ('', '99')
+              AND project_id = :projectId;
+        `;
+            await dbServer.query(sqlByCode, {
+                replacements: { projectId: this.project_id },
+                type: QueryTypes.UPDATE,
+            });
+        } catch (error) {
+            console.error('Error updateVehicleFromIsInjt (code):', error);
+        }
+
+        // ── Step 2: เฉพาะ is_injt = '99' ใช้ข้อความ is_injt_t จับคีย์เวิร์ด ───────
+        try {
+            const sqlByText = `
+            UPDATE integrate_final
+            SET vehicle_1 = CASE
+                WHEN is_injt_t LIKE '%อีแต๋น%' OR is_injt_t LIKE '%อิแต๋น%' OR is_injt_t LIKE '%อิแต๊ก%'
+                  OR is_injt_t LIKE '%ไถ%' OR is_injt_t LIKE '%แทรกเตอร์%' OR is_injt_t LIKE '%แทรค%'
+                  OR is_injt_t LIKE '%แทร๊ก%' OR is_injt_t LIKE '%เกษตร%'                       THEN 'รถเพื่อการเกษตร'
+                WHEN is_injt_t LIKE '%แม็คโค%' OR is_injt_t LIKE '%แบ็คโค%' OR is_injt_t LIKE '%ตัก%'
+                  OR is_injt_t LIKE '%บดถนน%' OR is_injt_t LIKE '%เกลีย%' OR is_injt_t LIKE '%เครน%'
+                  OR is_injt_t LIKE '%โฟ%'   OR is_injt_t LIKE '%ขุด%'   OR is_injt_t LIKE '%รถยก%'
+                  OR is_injt_t LIKE '%เทียมสัตว์%'                                              THEN 'รถอื่นๆ'
+                WHEN (is_injt_t LIKE '%รถไฟ%' AND is_injt_t NOT LIKE '%รถไฟฟ้า%')
+                  OR is_injt_t LIKE '%รถราง%'                                                   THEN 'รถไฟ'
+                WHEN is_injt_t LIKE '%เดิน%' OR is_injt_t LIKE '%สุนัข%' OR is_injt_t LIKE '%ร้านขาย%'
+                  OR is_injt_t LIKE '%โดดร่ม%' OR is_injt_t LIKE '%เครื่องบิน%' OR is_injt_t LIKE '%เรือ%'
+                  OR is_injt_t LIKE '%วีลแชร์%' OR is_injt_t LIKE '%วิลแชร์%'                    THEN 'อื่นๆ'
+                WHEN is_injt_t LIKE '%สามล้อ%' OR is_injt_t LIKE '%ตุ๊ก%' OR is_injt_t LIKE '%ซาเล%'
+                  OR is_injt_t LIKE '%ชาเล%' OR is_injt_t LIKE '%3ล้อ%' OR is_injt_t LIKE '%ต๊อก%'
+                  OR is_injt_t LIKE '%สกายแล็ป%'                                                THEN 'ยานยนต์สามล้อ'
+                WHEN is_injt_t LIKE '%มอเตอร์ไซ%' OR is_injt_t LIKE '%จักรยานยนต์%' OR is_injt_t LIKE '%จักยานยนต์%'
+                  OR is_injt_t LIKE '%จยย%' OR is_injt_t LIKE '%สก%' OR is_injt_t LIKE '%scoot%'
+                  OR is_injt_t LIKE '%วิบาก%' OR is_injt_t LIKE '%atv%' OR is_injt_t LIKE '%พ่วงข้าง%'
+                  OR is_injt_t LIKE '%บิ๊กไบ%'                                                  THEN 'รถจักรยานยนต์'
+                WHEN is_injt_t LIKE '%จักรยาน%' OR is_injt_t LIKE '%จัรยาน%' OR is_injt_t LIKE '%จักยาน%'
+                  OR is_injt_t LIKE '%ถีบ%'                                                     THEN 'จักรยาน'
+                WHEN is_injt_t LIKE '%รถยนต์%' OR is_injt_t LIKE '%เก๋ง%' OR is_injt_t LIKE '%ที่นั่ง%'
+                  OR is_injt_t LIKE '%แท็กซี่%' OR is_injt_t LIKE '%ฟอร์จูน%' OR is_injt_t LIKE '%ปาเจโร%'
+                  OR is_injt_t LIKE '%กอล์ฟ%' OR is_injt_t LIKE '%โกคาร์ท%' OR is_injt_t LIKE '%ตำรวจ%'
+                  OR is_injt_t LIKE '%ตำตรวจ%' OR is_injt_t LIKE '%eco%' OR is_injt_t LIKE '%suv%'        THEN 'รถยนต์'
+                WHEN is_injt_t LIKE '%กระบะ%' OR is_injt_t LIKE '%กะบะ%' OR is_injt_t LIKE '%ปิกอัพ%'
+                  OR is_injt_t LIKE '%ปิคอัพ%' OR is_injt_t LIKE '%รถตู้%' OR is_injt_t LIKE '%van%'
+                  OR is_injt_t LIKE '%พยาบาล%' OR is_injt_t LIKE '%กู้ชีพ%' OR is_injt_t LIKE '%refer%'    THEN 'รถบรรทุกเล็กหรือรถตู้'
+                WHEN is_injt_t LIKE '%หกล้อ%' OR is_injt_t LIKE '%6ล้อ%' OR is_injt_t LIKE '%6 ล้อ%'
+                  OR is_injt_t LIKE '%สิบล้อ%' OR is_injt_t LIKE '%รถบรรทุก%' OR is_injt_t LIKE '%รถพ่วง%'
+                  OR is_injt_t LIKE '%เทรน%' OR is_injt_t LIKE '%เทเลอ%' OR is_injt_t LIKE '%โม่ปูน%'
+                  OR is_injt_t LIKE '%ขนปูน%' OR is_injt_t LIKE '%ดูดส้วม%' OR is_injt_t LIKE '%ดับเพ%'
+                  OR is_injt_t LIKE '%ขยะ%' OR is_injt_t LIKE '%น้ำแข็ง%'                       THEN 'รถบรรทุกหนัก'
+                WHEN is_injt_t LIKE '%รถบัส%' OR is_injt_t LIKE '%โดยสาร%' OR is_injt_t LIKE '%เมล์%'
+                  OR is_injt_t LIKE '%สองแถว%' OR is_injt_t LIKE '%นักเรียน%' OR is_injt_t LIKE '%โรงเรียน%'
+                  OR is_injt_t LIKE '%รับส่ง%'                                                  THEN 'รถโดยสาร'
+                WHEN is_injt_t LIKE '%ไฟฟ้า%'                                                   THEN 'รถยนต์'
+                ELSE 'รถอื่นๆ'
+            END
+            WHERE TRIM(is_injt) = '99'
+              AND is_injt_t IS NOT NULL
+              AND TRIM(is_injt_t) <> ''
+              AND (vehicle_1 IS NULL OR TRIM(vehicle_1) = '')
+              AND project_id = :projectId;
+        `;
+            await dbServer.query(sqlByText, {
+                replacements: { projectId: this.project_id },
+                type: QueryTypes.UPDATE,
+            });
+        } catch (error) {
+            console.error('Error updateVehicleFromIsInjt (text):', error);
+        }
+    }
+
     async updateHelmetRiskData() {
         try {
             await dbServer.query(`UPDATE integrate_final SET helmet_risk = NULL          WHERE vehicle_1 != 'รถจักรยานยนต์' AND project_id = ${this.project_id};`);
@@ -2097,6 +2238,8 @@ class ProcessIntegrateController {
             type: QueryTypes.UPDATE
         });
     }
+
+
 
     async updateProjectSummary(projectId) {
         // Define or obtain your SQL query string
